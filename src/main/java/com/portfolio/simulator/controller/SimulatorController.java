@@ -1,5 +1,7 @@
 package com.portfolio.simulator.controller;
 
+import com.portfolio.simulator.model.AllScenariosRequest;
+import com.portfolio.simulator.model.AllScenariosResponse;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.SimulationResponse;
 import com.portfolio.simulator.model.YearResult;
@@ -98,5 +100,16 @@ public class SimulatorController {
                 Map.of("key", "ffEmgMkts",  "label", "F/F Emerging Markets")
             )
         ));
+    }
+    /**
+     * POST /api/simulate/all
+     *
+     * Runs all 40-year historical scenarios (1929-1986) and returns
+     * aggregate statistics for the SORR visualization.
+     */
+    @PostMapping("/simulate/all")
+    public ResponseEntity<?> simulateAll(@Valid @RequestBody AllScenariosRequest request) {
+        AllScenariosResponse response = simulatorService.simulateAll(request);
+        return ResponseEntity.ok(response);
     }
 }

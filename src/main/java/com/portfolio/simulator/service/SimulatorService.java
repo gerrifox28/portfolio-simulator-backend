@@ -1,5 +1,8 @@
 package com.portfolio.simulator.service;
 
+import com.portfolio.simulator.model.AllScenariosRequest;
+import com.portfolio.simulator.model.AllScenariosResponse;
+import com.portfolio.simulator.model.ScenarioSummary;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.YearResult;
 import org.springframework.stereotype.Service;
@@ -91,6 +94,95 @@ public class SimulatorService {
         }
 
         return results;
+    }
+
+    // -------------------------------------------------------------------------
+    // ALL SCENARIOS  (runs all 40-year windows from 1929 to 1986)
+    // -------------------------------------------------------------------------
+
+    private static final int SCENARIO_YEARS = 40;
+    private static final int FIRST_START_YEAR = 1929;
+
+    public AllScenariosResponse simulateAll(AllScenariosRequest req) {
+        // Build a default SimulationRequest using spreadsheet allocation defaults
+        SimulationRequest base = defaultAllocation();
+        base.setStartingNestEgg(req.getStartingNestEgg());
+        base.setInitialWithdrawal(req.getInitialWithdrawal());
+
+        int maxYear = Collections.max(HISTORICAL_DATA.keySet());
+        int lastStartYear = maxYear - SCENARIO_YEARS + 1; // last year with full 40yr data
+
+        List<ScenarioSummary> scenarios = new ArrayList<>();
+        int failureCount = 0;
+        int earliestFailureYears = Integer.MAX_VALUE;
+        double highestEndingBalance = 0;
+        double totalEndingBalance = 0;
+        int survivorCount = 0;
+        int worstStartYear = FIRST_START_YEAR;
+        int bestStartYear = FIRST_START_YEAR;
+        double worstBalance = Double.MAX_VALUE;
+        double bestBalance = Double.MIN_VALUE;
+
+        for (int startYear = FIRST_START_YEAR; startYear <= lastStartYear; startYear++) {
+            base.setStartYear(startYear);
+            List<YearResult> results = simulate(base);
+
+            // Cap at 40 years
+            List<YearResult> window = results.size() > SCENARIO_YEARS
+                ? results.subList(0, SCENARIO_YEARS)
+                : results;
+
+            ScenarioSummary s = new ScenarioSummary();
+            s.setStartYear(startYear);
+
+            boolean failed = results.size() < SCENARIO_YEARS
+                || results.get(results.size() - 1).getPortfolioEnd() <= 0;
+            s.setFailed(failed);
+            s.setYearsSurvived(window.size());
+
+            double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
+            s.setEndingBalance(endBalance);
+            scenarios.add(s);
+
+            if (failed) {
+                failureCount++;
+                earliestFailureYears = Math.min(earliestFailureYears, window.size());
+                if (endBalance < worstBalance) { worstBalance = endBalance; worstStartYear = startYear; }
+            } else {
+                totalEndingBalance += endBalance;
+                survivorCount++;
+                if (endBalance > highestEndingBalance) highestEndingBalance = endBalance;
+                if (endBalance > bestBalance) { bestBalance = endBalance; bestStartYear = startYear; }
+                if (endBalance < worstBalance) { worstBalance = endBalance; worstStartYear = startYear; }
+            }
+        }
+
+        AllScenariosResponse resp = new AllScenariosResponse();
+        resp.setScenarios(scenarios);
+        resp.setTotalScenarios(scenarios.size());
+        resp.setFailureCount(failureCount);
+        resp.setFailureRate(Math.round((failureCount * 100.0 / scenarios.size()) * 10.0) / 10.0);
+        resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
+        resp.setHighestEndingBalance(highestEndingBalance);
+        resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
+        resp.setWorstStartYear(worstStartYear);
+        resp.setBestStartYear(bestStartYear);
+        return resp;
+    }
+
+    /** Spreadsheet default allocation */
+    private SimulationRequest defaultAllocation() {
+        SimulationRequest r = new SimulationRequest();
+        r.setSp500(0.0);
+        r.setCrsp1_10(0.31110);
+        r.setOneMonth(0.05);
+        r.setFiveYearUS(0.25);
+        r.setCrsp6_10(0.0549);
+        r.setFfIntl(0.162);
+        r.setDjUsReit(0.10);
+        r.setFfEmgMkts(0.072);
+        r.setExpensesAndMgmtFee(0.012);
+        return r;
     }
 
     // -------------------------------------------------------------------------

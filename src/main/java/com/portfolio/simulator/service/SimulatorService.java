@@ -162,9 +162,9 @@ public class SimulatorService {
         resp.setTotalScenarios(scenarios.size());
         resp.setFailureCount(failureCount);
         resp.setFailureRate(Math.round((failureCount * 100.0 / scenarios.size()) * 10.0) / 10.0);
-        resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
-        resp.setHighestEndingBalance(highestEndingBalance);
-        resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
+        resp.setEarliestFailureYear(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
+        resp.setHighestFinalBalance(highestEndingBalance);
+        resp.setAverageFinalBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
         return resp;

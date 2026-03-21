@@ -21,13 +21,13 @@ public class AllScenariosResponse {
     private double failureRate;
 
     /** Earliest year the portfolio ran out (worst case sequence) */
-    private int earliestFailureYear;
+    private int earliestFailureYears;
 
     /** Highest remaining balance after 40 years across all scenarios */
-    private double highestFinalBalance;
+    private double highestEndingBalance;
 
     /** Average remaining balance after 40 years (exhausted = 0) */
-    private double averageFinalBalance;
+    private double averageEndingBalance;
 
     /** The starting year that produced the highest final balance */
     private int bestStartYear;
@@ -49,14 +49,14 @@ public class AllScenariosResponse {
     public double getFailureRate() { return failureRate; }
     public void setFailureRate(double failureRate) { this.failureRate = failureRate; }
 
-    public int getEarliestFailureYear() { return earliestFailureYear; }
-    public void setEarliestFailureYear(int earliestFailureYear) { this.earliestFailureYear = earliestFailureYear; }
+    public int getEarliestFailureYears() { return earliestFailureYears; }
+    public void setEarliestFailureYears(int earliestFailureYears) { this.earliestFailureYears = earliestFailureYears; }
 
-    public double getHighestFinalBalance() { return highestFinalBalance; }
-    public void setHighestFinalBalance(double highestFinalBalance) { this.highestFinalBalance = highestFinalBalance; }
+    public double getHighestEndingBalance() { return highestEndingBalance; }
+    public void setHighestEndingBalance(double highestEndingBalance) { this.highestEndingBalance = highestEndingBalance; }
 
-    public double getAverageFinalBalance() { return averageFinalBalance; }
-    public void setAverageFinalBalance(double averageFinalBalance) { this.averageFinalBalance = averageFinalBalance; }
+    public double getAverageEndingBalance() { return averageEndingBalance; }
+    public void setAverageEndingBalance(double averageFinalBalance) { this.averageEndingBalance = averageFinalBalance; }
 
     public int getBestStartYear() { return bestStartYear; }
     public void setBestStartYear(int bestStartYear) { this.bestStartYear = bestStartYear; }

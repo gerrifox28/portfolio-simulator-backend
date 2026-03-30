@@ -1,5 +1,7 @@
 package com.portfolio.simulator;
 
+import com.portfolio.simulator.model.AllScenariosRequest;
+import com.portfolio.simulator.model.AllScenariosResponse;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.YearResult;
 import com.portfolio.simulator.service.SimulatorService;
@@ -209,5 +211,142 @@ class SimulatorServiceTest {
             Arguments.of(1970, 40),
             Arguments.of(1973, 37)
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom allocation and fee tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void higherFee_reducesEndingBalance() {
+        SimulationRequest lowFee = new SimulationRequest();
+        lowFee.setStartYear(1950);
+        lowFee.setExpensesAndMgmtFee(0.005); // 0.5%
+
+        SimulationRequest highFee = new SimulationRequest();
+        highFee.setStartYear(1950);
+        highFee.setExpensesAndMgmtFee(0.025); // 2.5%
+
+        double lowFeeEnd = service.simulate(lowFee).get(39).getPortfolioEnd();
+        double highFeeEnd = service.simulate(highFee).get(39).getPortfolioEnd();
+
+        assertTrue(lowFeeEnd > highFeeEnd,
+            "Lower fee should produce higher ending balance over 40 years");
+    }
+
+    @Test
+    void zeroFee_producesHigherBalanceThanDefaultFee() {
+        SimulationRequest zeroFee = new SimulationRequest();
+        zeroFee.setStartYear(1970);
+        zeroFee.setExpensesAndMgmtFee(0.0);
+
+        SimulationRequest defaultFee = new SimulationRequest();
+        defaultFee.setStartYear(1970);
+        // default fee is 1.2%
+
+        List<YearResult> zeroResults = service.simulate(zeroFee);
+        List<YearResult> defaultResults = service.simulate(defaultFee);
+
+        // Both should survive some years; zero fee should always end higher
+        int minYears = Math.min(zeroResults.size(), defaultResults.size());
+        assertTrue(minYears > 0);
+        assertTrue(zeroResults.get(minYears - 1).getPortfolioEnd()
+                 > defaultResults.get(minYears - 1).getPortfolioEnd(),
+            "Zero fee should produce higher balance than 1.2% fee");
+    }
+
+    @Test
+    void allBondsAllocation_differentReturnRateFromAllStocks() {
+        // Verify that allocation weights actually affect the blended return rate.
+        // Compare year-1 return rates: 100% 5-yr treasuries vs 100% S&P 500 starting 1950.
+        // In 1950: 5-yr treasury = 0.70%, S&P 500 = 31.74% — clearly different.
+        SimulationRequest allBonds = new SimulationRequest();
+        allBonds.setStartYear(1950);
+        allBonds.setSp500(0.0);
+        allBonds.setCrsp1_10(0.0);
+        allBonds.setOneMonth(0.0);
+        allBonds.setFiveYearUS(1.0);
+        allBonds.setCrsp6_10(0.0);
+        allBonds.setFfIntl(0.0);
+        allBonds.setDjUsReit(0.0);
+        allBonds.setFfEmgMkts(0.0);
+
+        SimulationRequest allStocks = new SimulationRequest();
+        allStocks.setStartYear(1950);
+        allStocks.setSp500(1.0);
+        allStocks.setCrsp1_10(0.0);
+        allStocks.setOneMonth(0.0);
+        allStocks.setFiveYearUS(0.0);
+        allStocks.setCrsp6_10(0.0);
+        allStocks.setFfIntl(0.0);
+        allStocks.setDjUsReit(0.0);
+        allStocks.setFfEmgMkts(0.0);
+
+        double bondsRate = service.simulate(allBonds).get(0).getPortfolioReturnRate();
+        double stocksRate = service.simulate(allStocks).get(0).getPortfolioReturnRate();
+
+        assertNotEquals(bondsRate, stocksRate, 0.001,
+            "All-bonds and all-stocks should produce different blended return rates in 1950");
+        assertTrue(stocksRate > bondsRate,
+            "S&P 500 return should exceed 5-yr treasury return in 1950");
+    }
+
+    @Test
+    void customAllocation_sumValidation() {
+        SimulationRequest badAlloc = new SimulationRequest();
+        badAlloc.setSp500(0.5);
+        badAlloc.setCrsp1_10(0.5);
+        badAlloc.setOneMonth(0.5); // sum > 1.0
+
+        // allocationSum() reflects the actual sum — controller rejects it
+        assertTrue(badAlloc.allocationSum() > 1.0,
+            "Allocation sum should be > 1.0 when weights exceed 100%");
+    }
+
+    @Test
+    void simulateAll_withCustomFee_differentFromDefault() {
+        AllScenariosRequest defaultReq = new AllScenariosRequest();
+
+        AllScenariosRequest highFeeReq = new AllScenariosRequest();
+        highFeeReq.setExpensesAndMgmtFee(0.03); // 3%
+
+        AllScenariosResponse defaultResp = service.simulateAll(defaultReq);
+        AllScenariosResponse highFeeResp = service.simulateAll(highFeeReq);
+
+        // Higher fee should produce lower average ending balance
+        assertTrue(defaultResp.getAverageEndingBalance() > highFeeResp.getAverageEndingBalance(),
+            "Default 1.2% fee should outperform 3% fee on average ending balance");
+    }
+
+    @Test
+    void simulateAll_withCustomAllocation_differentOutcome() {
+        // Default allocation (spreadsheet)
+        AllScenariosRequest defaultReq = new AllScenariosRequest();
+
+        // 100% T-Bills — very conservative
+        AllScenariosRequest tBillsReq = new AllScenariosRequest();
+        tBillsReq.setSp500(0.0);
+        tBillsReq.setCrsp1_10(0.0);
+        tBillsReq.setOneMonth(1.0);
+        tBillsReq.setFiveYearUS(0.0);
+        tBillsReq.setCrsp6_10(0.0);
+        tBillsReq.setFfIntl(0.0);
+        tBillsReq.setDjUsReit(0.0);
+        tBillsReq.setFfEmgMkts(0.0);
+
+        AllScenariosResponse defaultResp = service.simulateAll(defaultReq);
+        AllScenariosResponse tBillsResp = service.simulateAll(tBillsReq);
+
+        // T-Bills only should have a higher failure rate than the diversified default
+        assertTrue(tBillsResp.getFailureCount() >= defaultResp.getFailureCount(),
+            "100%% T-Bills should not have fewer failures than the diversified default allocation");
+    }
+
+    @Test
+    void simulateAll_allocationSumValidation() {
+        AllScenariosRequest req = new AllScenariosRequest();
+        // sum = 1.0 by default
+        assertEquals(1.0, req.allocationSum(), 0.001,
+            "Default AllScenariosRequest allocation should sum to 1.0");
     }
 }

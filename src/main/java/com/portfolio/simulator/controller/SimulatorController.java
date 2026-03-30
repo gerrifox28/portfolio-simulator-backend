@@ -109,6 +109,15 @@ public class SimulatorController {
      */
     @PostMapping("/simulate/all")
     public ResponseEntity<?> simulateAll(@Valid @RequestBody AllScenariosRequest request) {
+        double sum = request.allocationSum();
+        if (Math.abs(sum - 1.0) > 0.001) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", String.format(
+                    "Asset allocation weights must sum to 1.0 (got %.4f). " +
+                    "Adjust your weights so sp500 + crsp1_10 + oneMonth + fiveYearUS + " +
+                    "crsp6_10 + ffIntl + djUsReit + ffEmgMkts = 1.0", sum)
+            ));
+        }
         AllScenariosResponse response = simulatorService.simulateAll(request);
         return ResponseEntity.ok(response);
     }

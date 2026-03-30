@@ -104,10 +104,19 @@ public class SimulatorService {
     private static final int FIRST_START_YEAR = 1929;
 
     public AllScenariosResponse simulateAll(AllScenariosRequest req) {
-        // Build a default SimulationRequest using spreadsheet allocation defaults
-        SimulationRequest base = defaultAllocation();
+        // Build a SimulationRequest from the caller's allocation & fee settings
+        SimulationRequest base = new SimulationRequest();
         base.setStartingNestEgg(req.getStartingNestEgg());
         base.setInitialWithdrawal(req.getInitialWithdrawal());
+        base.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
+        base.setSp500(req.getSp500());
+        base.setCrsp1_10(req.getCrsp1_10());
+        base.setOneMonth(req.getOneMonth());
+        base.setFiveYearUS(req.getFiveYearUS());
+        base.setCrsp6_10(req.getCrsp6_10());
+        base.setFfIntl(req.getFfIntl());
+        base.setDjUsReit(req.getDjUsReit());
+        base.setFfEmgMkts(req.getFfEmgMkts());
 
         int maxYear = Collections.max(HISTORICAL_DATA.keySet());
         int lastStartYear = maxYear - SCENARIO_YEARS + 1; // last year with full 40yr data
@@ -168,21 +177,6 @@ public class SimulatorService {
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
         return resp;
-    }
-
-    /** Spreadsheet default allocation */
-    private SimulationRequest defaultAllocation() {
-        SimulationRequest r = new SimulationRequest();
-        r.setSp500(0.0);
-        r.setCrsp1_10(0.31110);
-        r.setOneMonth(0.05);
-        r.setFiveYearUS(0.25);
-        r.setCrsp6_10(0.0549);
-        r.setFfIntl(0.162);
-        r.setDjUsReit(0.10);
-        r.setFfEmgMkts(0.072);
-        r.setExpensesAndMgmtFee(0.012);
-        return r;
     }
 
     // -------------------------------------------------------------------------

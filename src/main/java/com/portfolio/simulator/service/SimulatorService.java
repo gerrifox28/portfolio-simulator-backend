@@ -2,21 +2,85 @@ package com.portfolio.simulator.service;
 
 import com.portfolio.simulator.model.AllScenariosRequest;
 import com.portfolio.simulator.model.AllScenariosResponse;
+import com.portfolio.simulator.model.AnnuityCompareRequest;
+import com.portfolio.simulator.model.AnnuityCompareResponse;
+import com.portfolio.simulator.model.AnnuityRateTable;
 import com.portfolio.simulator.model.ScenarioSummary;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.YearResult;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
+import java.util.logging.Logger;
 
 /**
  * Core simulation engine.
  *
- * Translates the logic from "Calcs and Formulas" and "Advanced Returns"
- * sheets in Template_for_Gerri_March_2026.xltm.
+ * Historical data is loaded from the hardcoded defaults on startup.
+ * If a spreadsheet has previously been uploaded it is loaded from disk instead,
+ * overriding the defaults.  Call loadFromSpreadsheet() to update at runtime.
  */
 @Service
 public class SimulatorService {
+
+    private static final Logger log = Logger.getLogger(SimulatorService.class.getName());
+
+    private final SpreadsheetLoaderService loader;
+
+    @Value("${app.data.path:./data/returns.xlsx}")
+    private String dataFilePath;
+
+    // Instance variable — replaced when a new spreadsheet is uploaded
+    private Map<Integer, double[]> historicalData = buildDefaultData();
+
+    public SimulatorService(SpreadsheetLoaderService loader) {
+        this.loader = loader;
+    }
+
+    /**
+     * On startup, try to load from the persisted spreadsheet on disk.
+     * Falls back silently to the hardcoded defaults if no file exists yet.
+     */
+    @PostConstruct
+    void tryLoadFromDisk() {
+        Path path = Paths.get(dataFilePath);
+        if (Files.exists(path)) {
+            try (InputStream is = Files.newInputStream(path)) {
+                historicalData = Collections.unmodifiableMap(loader.load(is));
+                log.info("Loaded historical data from " + path + " (" + historicalData.size() + " years)");
+            } catch (IOException e) {
+                log.warning("Could not load spreadsheet from disk (" + path + "), using defaults. Error: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Replaces historical data with values parsed from the given spreadsheet stream.
+     * Also saves the file to disk so the data survives a server restart.
+     *
+     * @param inputStream  raw bytes of the uploaded .xlsx / .xltm file
+     * @param fileBytes    same bytes, for persistence to disk
+     * @return the number of years loaded
+     */
+    public int loadFromSpreadsheet(InputStream inputStream, byte[] fileBytes) throws IOException {
+        Map<Integer, double[]> newData = loader.load(inputStream);
+        historicalData = Collections.unmodifiableMap(newData);
+
+        // Persist to disk
+        Path path = Paths.get(dataFilePath);
+        Files.createDirectories(path.getParent());
+        Files.write(path, fileBytes);
+        log.info("Saved uploaded spreadsheet to " + path + " (" + newData.size() + " years)");
+
+        return newData.size();
+    }
 
     // -------------------------------------------------------------------------
     // PUBLIC API
@@ -24,13 +88,13 @@ public class SimulatorService {
 
     public List<YearResult> simulate(SimulationRequest req) {
         List<YearResult> results = new ArrayList<>();
-        int maxYear = Collections.max(HISTORICAL_DATA.keySet());
+        int maxYear = Collections.max(historicalData.keySet());
 
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
 
-            double[] row = HISTORICAL_DATA.get(year);
+            double[] row = historicalData.get(year);
             if (row == null) break;
 
             YearResult r = new YearResult();
@@ -97,13 +161,14 @@ public class SimulatorService {
     }
 
     // -------------------------------------------------------------------------
-    // ALL SCENARIOS  (runs all 40-year windows from 1929 to 1986)
+    // ALL SCENARIOS  (runs all N-year windows from 1929 to lastStartYear)
     // -------------------------------------------------------------------------
 
-    private static final int SCENARIO_YEARS = 40;
     private static final int FIRST_START_YEAR = 1929;
 
     public AllScenariosResponse simulateAll(AllScenariosRequest req) {
+        int scenarioYears = req.getYearCount();
+
         // Build a SimulationRequest from the caller's allocation & fee settings
         SimulationRequest base = new SimulationRequest();
         base.setStartingNestEgg(req.getStartingNestEgg());
@@ -118,8 +183,8 @@ public class SimulatorService {
         base.setDjUsReit(req.getDjUsReit());
         base.setFfEmgMkts(req.getFfEmgMkts());
 
-        int maxYear = Collections.max(HISTORICAL_DATA.keySet());
-        int lastStartYear = maxYear - SCENARIO_YEARS + 1; // last year with full 40yr data
+        int maxYear = Collections.max(historicalData.keySet());
+        int lastStartYear = maxYear - scenarioYears + 1; // last year with full N-yr data
 
         List<ScenarioSummary> scenarios = new ArrayList<>();
         int failureCount = 0;
@@ -136,15 +201,15 @@ public class SimulatorService {
             base.setStartYear(startYear);
             List<YearResult> results = simulate(base);
 
-            // Cap at 40 years
-            List<YearResult> window = results.size() > SCENARIO_YEARS
-                ? results.subList(0, SCENARIO_YEARS)
+            // Cap at scenarioYears
+            List<YearResult> window = results.size() > scenarioYears
+                ? results.subList(0, scenarioYears)
                 : results;
 
             ScenarioSummary s = new ScenarioSummary();
             s.setStartYear(startYear);
 
-            boolean failed = window.size() < SCENARIO_YEARS
+            boolean failed = window.size() < scenarioYears
                 || window.get(window.size() - 1).getPortfolioEnd() <= 0;
             s.setFailed(failed);
             s.setYearsSurvived(window.size());
@@ -176,6 +241,7 @@ public class SimulatorService {
         resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
+        resp.setYearCount(scenarioYears);
         return resp;
     }
 
@@ -193,7 +259,7 @@ public class SimulatorService {
     //     - expensesAndMgmtFee
     // -------------------------------------------------------------------------
     private double computeBlendedReturn(int year, SimulationRequest req) {
-        double[] row = HISTORICAL_DATA.get(year);
+        double[] row = historicalData.get(year);
         if (row == null) return -req.getExpensesAndMgmtFee();
 
         double sp500    = row[1];
@@ -217,13 +283,13 @@ public class SimulatorService {
     }
 
     // -------------------------------------------------------------------------
-    // HISTORICAL DATA  (from "Advanced Returns" sheet, columns A–K)
+    // DEFAULT HISTORICAL DATA — used until a spreadsheet is uploaded
+    // (from "Advanced Returns" sheet, columns A–J)
     // Key   = year
     // Value = double[] { CPI, SP500, CRSP1_10, T-Bills(1mo), 5YrTreasuries, CRSP6_10, FFIntl, REIT, EmgMkts }
     // FFIntl/REIT/EmgMkts use CRSP1_10 as proxy for years before real data existed (~1975+)
     // -------------------------------------------------------------------------
-    private static final Map<Integer, double[]> HISTORICAL_DATA;
-    static {
+    private static Map<Integer, double[]> buildDefaultData() {
         Map<Integer, double[]> data = new HashMap<>();
         data.put(1929, new double[]{ -0.0058, -0.3119, -0.3168, 0.0156, 0.0382, -0.3795, -0.3168, -0.3168, -0.3168 });
         data.put(1930, new double[]{ -0.0639534872551056, -0.248950061276622, -0.287990281699459, 0.0241034069838444, 0.067151105314349, -0.399295399634056, -0.287990281699459, -0.287990281699459, -0.287990281699459 });
@@ -322,10 +388,202 @@ public class SimulatorService {
         data.put(2023, new double[]{ 0.0335212284518966, 0.262876274954443, 0.266175744835143, 0.0494759937999094, 0.0428281707447658, 0.178406489080181, 0.1582, 0.1396, 0.1247 });
         data.put(2024, new double[]{ 0.0288805722207874, 0.250197204614459, 0.251513555682974, 0.0536572126829791, 0.0241962109944416, 0.161068183188536, 0.0389, 0.081, 0.0643 });
         data.put(2025, new double[]{ 0.0267708054525304, 0.178799926603734, 0.174686658132095, 0.0425475485920301, 0.0650591740262574, 0.117599783035545, 0.3217, 0.0367, 0.2957 });
-        HISTORICAL_DATA = Collections.unmodifiableMap(data);
+        return Collections.unmodifiableMap(data);
     }
 
     /** Exposes valid year range to the controller for metadata endpoint */
-    public int getMinYear() { return Collections.min(HISTORICAL_DATA.keySet()); }
-    public int getMaxYear() { return Collections.max(HISTORICAL_DATA.keySet()); }
+    public int getMinYear() { return Collections.min(historicalData.keySet()); }
+    public int getMaxYear() { return Collections.max(historicalData.keySet()); }
+
+    // -------------------------------------------------------------------------
+    // ANNUITY COMPARISON
+    // Runs two all-scenarios simulations — one without annuity, one with — and
+    // returns both for side-by-side display.
+    // -------------------------------------------------------------------------
+
+    public AnnuityCompareResponse simulateAllCompare(AnnuityCompareRequest req) {
+        double annuityRate          = AnnuityRateTable.lookup(req.getAge(), req.isJoint());
+        double annuityPurchaseAmt   = req.getStartingNestEgg() * req.getAnnuityPercentage();
+        double initialAnnuityIncome = annuityPurchaseAmt * annuityRate;
+
+        // Without annuity: standard run using full nest egg
+        AllScenariosResponse withoutAnnuity = simulateAll(req.toAllScenariosRequest());
+
+        // With annuity: portfolio starts smaller; annuity income offsets withdrawals
+        AllScenariosResponse withAnnuity = simulateAllWithAnnuity(req, annuityRate);
+
+        AnnuityCompareResponse resp = new AnnuityCompareResponse();
+        resp.setWithoutAnnuity(withoutAnnuity);
+        resp.setWithAnnuity(withAnnuity);
+        resp.setAnnuityRate(annuityRate);
+        resp.setInitialAnnuityIncome(initialAnnuityIncome);
+        return resp;
+    }
+
+    private AllScenariosResponse simulateAllWithAnnuity(AnnuityCompareRequest req, double annuityRate) {
+        int scenarioYears = req.getYearCount();
+
+        // Build allocation request from the compare request fields
+        SimulationRequest base = new SimulationRequest();
+        base.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
+        base.setSp500(req.getSp500());
+        base.setCrsp1_10(req.getCrsp1_10());
+        base.setOneMonth(req.getOneMonth());
+        base.setFiveYearUS(req.getFiveYearUS());
+        base.setCrsp6_10(req.getCrsp6_10());
+        base.setFfIntl(req.getFfIntl());
+        base.setDjUsReit(req.getDjUsReit());
+        base.setFfEmgMkts(req.getFfEmgMkts());
+
+        // Annuity configuration
+        double annuityPct           = req.getAnnuityPercentage();
+        double portfolioNestEgg     = req.getStartingNestEgg() * (1.0 - annuityPct);
+        double initialAnnuityIncome = req.getStartingNestEgg() * annuityPct * annuityRate;
+
+        // Build per-scenario SimulationRequest with the reduced portfolio nest egg
+        SimulationRequest portfolioReq = new SimulationRequest();
+        portfolioReq.setStartingNestEgg(portfolioNestEgg);
+        portfolioReq.setInitialWithdrawal(req.getInitialWithdrawal());
+        portfolioReq.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
+        portfolioReq.setSp500(req.getSp500());
+        portfolioReq.setCrsp1_10(req.getCrsp1_10());
+        portfolioReq.setOneMonth(req.getOneMonth());
+        portfolioReq.setFiveYearUS(req.getFiveYearUS());
+        portfolioReq.setCrsp6_10(req.getCrsp6_10());
+        portfolioReq.setFfIntl(req.getFfIntl());
+        portfolioReq.setDjUsReit(req.getDjUsReit());
+        portfolioReq.setFfEmgMkts(req.getFfEmgMkts());
+
+        int maxYear = Collections.max(historicalData.keySet());
+        int lastStartYear = maxYear - scenarioYears + 1;
+
+        List<ScenarioSummary> scenarios = new ArrayList<>();
+        int failureCount = 0;
+        int earliestFailureYears = Integer.MAX_VALUE;
+        double highestEndingBalance = 0;
+        double totalEndingBalance = 0;
+        int survivorCount = 0;
+        int worstStartYear = FIRST_START_YEAR;
+        int bestStartYear = FIRST_START_YEAR;
+        double worstBalance = Double.MAX_VALUE;
+        double bestBalance = Double.MIN_VALUE;
+
+        for (int startYear = FIRST_START_YEAR; startYear <= lastStartYear; startYear++) {
+            portfolioReq.setStartYear(startYear);
+            List<YearResult> results = simulateWithAnnuity(portfolioReq, initialAnnuityIncome);
+
+            List<YearResult> window = results.size() > scenarioYears
+                ? results.subList(0, scenarioYears)
+                : results;
+
+            ScenarioSummary s = new ScenarioSummary();
+            s.setStartYear(startYear);
+
+            boolean failed = window.size() < scenarioYears
+                || window.get(window.size() - 1).getPortfolioEnd() <= 0;
+            s.setFailed(failed);
+            s.setYearsSurvived(window.size());
+
+            double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
+            s.setEndingBalance(endBalance);
+            scenarios.add(s);
+
+            if (failed) {
+                failureCount++;
+                earliestFailureYears = Math.min(earliestFailureYears, window.size());
+                if (endBalance < worstBalance) { worstBalance = endBalance; worstStartYear = startYear; }
+            } else {
+                totalEndingBalance += endBalance;
+                survivorCount++;
+                if (endBalance > highestEndingBalance) highestEndingBalance = endBalance;
+                if (endBalance > bestBalance) { bestBalance = endBalance; bestStartYear = startYear; }
+                if (endBalance < worstBalance) { worstBalance = endBalance; worstStartYear = startYear; }
+            }
+        }
+
+        AllScenariosResponse resp = new AllScenariosResponse();
+        resp.setScenarios(scenarios);
+        resp.setTotalScenarios(scenarios.size());
+        resp.setFailureCount(failureCount);
+        resp.setFailureRate(Math.round((failureCount * 100.0 / scenarios.size()) * 10.0) / 10.0);
+        resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
+        resp.setHighestEndingBalance(highestEndingBalance);
+        resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
+        resp.setWorstStartYear(worstStartYear);
+        resp.setBestStartYear(bestStartYear);
+        resp.setYearCount(scenarioYears);
+        return resp;
+    }
+
+    /**
+     * Simulates a single scenario with annuity income supplementing portfolio withdrawals.
+     *
+     * Each year:
+     *   annuityIncome grows by min(CPI, 3%)
+     *   portfolioWithdrawal = max(0, inflationAdjustedTarget - annuityIncome)
+     *
+     * @param req                 portfolio simulation parameters (nestEgg already reduced by annuityPct)
+     * @param initialAnnuityIncome  annuity income in year 1
+     */
+    private List<YearResult> simulateWithAnnuity(SimulationRequest req, double initialAnnuityIncome) {
+        List<YearResult> results = new ArrayList<>();
+        int maxYear = Collections.max(historicalData.keySet());
+
+        double annuityIncome = initialAnnuityIncome;
+        double targetIncome  = req.getInitialWithdrawal(); // full inflation-adjusted income need
+
+        for (int seq = 1; ; seq++) {
+            int year = req.getStartYear() + (seq - 1);
+            if (year > maxYear) break;
+
+            double[] row = historicalData.get(year);
+            if (row == null) break;
+
+            YearResult r = new YearResult();
+            r.setSequenceNumber(seq);
+            r.setYear(year);
+            r.setInflation(row[0]);
+
+            double beginning;
+            double portfolioWithdrawal;
+
+            if (seq == 1) {
+                beginning = req.getStartingNestEgg();
+                portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
+                portfolioWithdrawal = Math.min(portfolioWithdrawal, beginning);
+            } else {
+                YearResult prev = results.get(seq - 2);
+                beginning = prev.getPortfolioEnd();
+
+                // Annuity grows by CPI, capped at 3%
+                double cpi = prev.getInflation();
+                annuityIncome = annuityIncome * (1.0 + Math.min(cpi, 0.03));
+
+                // Full income target also grows by CPI
+                targetIncome = targetIncome * (1.0 + cpi);
+
+                portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
+                portfolioWithdrawal = Math.min(portfolioWithdrawal, Math.max(0, beginning));
+            }
+
+            r.setPortfolioBeginning(beginning);
+            r.setAnnualWithdrawal(portfolioWithdrawal);
+
+            double rate = computeBlendedReturn(year, req);
+            r.setPortfolioReturnRate(rate);
+
+            double gain = (beginning > 0)
+                ? rate * (beginning - portfolioWithdrawal)
+                : 0.0;
+            r.setPortfolioReturnDollars(gain);
+            r.setTotalIncome(portfolioWithdrawal + annuityIncome);
+            r.setPortfolioEnd(beginning - portfolioWithdrawal + gain);
+
+            results.add(r);
+
+            if (r.getPortfolioEnd() <= 0) break;
+        }
+
+        return results;
+    }
 }

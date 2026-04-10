@@ -2,12 +2,17 @@ package com.portfolio.simulator.model;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 
 /**
  * Request for the all-scenarios endpoint.
- * Accepts the two primary inputs plus the full allocation & fee settings.
- * All allocation fields default to the spreadsheet defaults.
+ *
+ * The caller provides a single stock market allocation percentage (SMA).
+ * The full portfolio breakdown is derived automatically:
+ *   Stocks (SMA):  56% CRSP 1-10, 10% CRSP 6-10, 23% F/F Intl, 11% F/F Emg Mkts
+ *   REIT:          lesser of 10% or remaining after stocks
+ *   Bonds:         remaining split equally between 1-mo T-Bills and 5-yr Treasuries
  */
 public class AllScenariosRequest {
 
@@ -17,33 +22,22 @@ public class AllScenariosRequest {
     @Positive(message = "Initial withdrawal must be positive")
     private double initialWithdrawal = 40_000.0;
 
+    /** Percentage of portfolio in globally diversified stocks (0.0 – 1.0). Default 60%. */
+    @DecimalMin(value = "0.0", message = "Stock market allocation cannot be negative")
+    @DecimalMax(value = "1.0", message = "Stock market allocation cannot exceed 100%")
+    private double stockMarketAllocation = 0.60;
+
+    /** Number of years to simulate per scenario. Default 40. */
+    @Min(value = 1, message = "Year count must be at least 1")
+    private int yearCount = 40;
+
     @DecimalMin(value = "0.0", message = "Expenses fee cannot be negative")
     @DecimalMax(value = "0.10", message = "Expenses fee cannot exceed 10%")
     private double expensesAndMgmtFee = 0.012;
 
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double sp500 = 0.0;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double crsp1_10 = 0.31110;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double oneMonth = 0.05;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double fiveYearUS = 0.25;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double crsp6_10 = 0.0549;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double ffIntl = 0.162;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double djUsReit = 0.10;
-
-    @DecimalMin("0.0") @DecimalMax("1.0")
-    private double ffEmgMkts = 0.072;
+    // -------------------------------------------------------------------------
+    // Primary getters & setters
+    // -------------------------------------------------------------------------
 
     public double getStartingNestEgg() { return startingNestEgg; }
     public void setStartingNestEgg(double startingNestEgg) { this.startingNestEgg = startingNestEgg; }
@@ -51,34 +45,37 @@ public class AllScenariosRequest {
     public double getInitialWithdrawal() { return initialWithdrawal; }
     public void setInitialWithdrawal(double initialWithdrawal) { this.initialWithdrawal = initialWithdrawal; }
 
+    public double getStockMarketAllocation() { return stockMarketAllocation; }
+    public void setStockMarketAllocation(double stockMarketAllocation) { this.stockMarketAllocation = stockMarketAllocation; }
+
+    public int getYearCount() { return yearCount; }
+    public void setYearCount(int yearCount) { this.yearCount = yearCount; }
+
     public double getExpensesAndMgmtFee() { return expensesAndMgmtFee; }
     public void setExpensesAndMgmtFee(double expensesAndMgmtFee) { this.expensesAndMgmtFee = expensesAndMgmtFee; }
 
-    public double getSp500() { return sp500; }
-    public void setSp500(double sp500) { this.sp500 = sp500; }
+    // -------------------------------------------------------------------------
+    // Derived allocation getters
+    // Stock slice: CRSP 1-10 (56%), CRSP 6-10 (10%), F/F Intl (23%), F/F Emg Mkts (11%)
+    // REIT: lesser of 10% or non-stock remainder
+    // Bonds: remainder split 50/50 between 1-mo T-Bills and 5-yr Treasuries
+    // S&P 500: always 0 (CRSP 1-10 covers the total market)
+    // -------------------------------------------------------------------------
 
-    public double getCrsp1_10() { return crsp1_10; }
-    public void setCrsp1_10(double crsp1_10) { this.crsp1_10 = crsp1_10; }
+    public double getSp500()      { return 0.0; }
+    public double getCrsp1_10()   { return stockMarketAllocation * 0.56; }
+    public double getCrsp6_10()   { return stockMarketAllocation * 0.10; }
+    public double getFfIntl()     { return stockMarketAllocation * 0.23; }
+    public double getFfEmgMkts()  { return stockMarketAllocation * 0.11; }
 
-    public double getOneMonth() { return oneMonth; }
-    public void setOneMonth(double oneMonth) { this.oneMonth = oneMonth; }
-
-    public double getFiveYearUS() { return fiveYearUS; }
-    public void setFiveYearUS(double fiveYearUS) { this.fiveYearUS = fiveYearUS; }
-
-    public double getCrsp6_10() { return crsp6_10; }
-    public void setCrsp6_10(double crsp6_10) { this.crsp6_10 = crsp6_10; }
-
-    public double getFfIntl() { return ffIntl; }
-    public void setFfIntl(double ffIntl) { this.ffIntl = ffIntl; }
-
-    public double getDjUsReit() { return djUsReit; }
-    public void setDjUsReit(double djUsReit) { this.djUsReit = djUsReit; }
-
-    public double getFfEmgMkts() { return ffEmgMkts; }
-    public void setFfEmgMkts(double ffEmgMkts) { this.ffEmgMkts = ffEmgMkts; }
-
-    public double allocationSum() {
-        return sp500 + crsp1_10 + oneMonth + fiveYearUS + crsp6_10 + ffIntl + djUsReit + ffEmgMkts;
+    public double getDjUsReit() {
+        return Math.min(0.10, 1.0 - stockMarketAllocation);
     }
+
+    private double bondAlloc() {
+        return (1.0 - stockMarketAllocation - getDjUsReit()) / 2.0;
+    }
+
+    public double getOneMonth()   { return bondAlloc(); }
+    public double getFiveYearUS() { return bondAlloc(); }
 }

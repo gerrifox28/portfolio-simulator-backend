@@ -2,6 +2,9 @@ package com.portfolio.simulator.controller;
 
 import com.portfolio.simulator.model.AllScenariosRequest;
 import com.portfolio.simulator.model.AllScenariosResponse;
+import com.portfolio.simulator.model.AnnuityCompareRequest;
+import com.portfolio.simulator.model.AnnuityCompareResponse;
+import com.portfolio.simulator.model.AnnuityRateTable;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.SimulationResponse;
 import com.portfolio.simulator.model.YearResult;
@@ -104,21 +107,32 @@ public class SimulatorController {
     /**
      * POST /api/simulate/all
      *
-     * Runs all 40-year historical scenarios (1929-1986) and returns
-     * aggregate statistics for the SORR visualization.
+     * Runs all N-year historical scenarios and returns aggregate statistics
+     * for the SORR visualization.  Portfolio allocation is derived automatically
+     * from the single stockMarketAllocation parameter.
      */
     @PostMapping("/simulate/all")
     public ResponseEntity<?> simulateAll(@Valid @RequestBody AllScenariosRequest request) {
-        double sum = request.allocationSum();
-        if (Math.abs(sum - 1.0) > 0.001) {
+        AllScenariosResponse response = simulatorService.simulateAll(request);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * POST /api/simulate/compare
+     *
+     * Runs two parallel all-scenarios simulations — one with just the investment
+     * portfolio, and one where a percentage of the nest egg is converted to a
+     * CPI-linked annuity (payout grows with inflation, capped at 3% per year).
+     * Returns both results for side-by-side comparison.
+     */
+    @PostMapping("/simulate/compare")
+    public ResponseEntity<?> simulateCompare(@Valid @RequestBody AnnuityCompareRequest request) {
+        if (request.getAge() < AnnuityRateTable.MIN_AGE || request.getAge() > AnnuityRateTable.MAX_AGE) {
             return ResponseEntity.badRequest().body(Map.of(
-                "error", String.format(
-                    "Asset allocation weights must sum to 1.0 (got %.4f). " +
-                    "Adjust your weights so sp500 + crsp1_10 + oneMonth + fiveYearUS + " +
-                    "crsp6_10 + ffIntl + djUsReit + ffEmgMkts = 1.0", sum)
+                "error", String.format("Age must be between %d and %d", AnnuityRateTable.MIN_AGE, AnnuityRateTable.MAX_AGE)
             ));
         }
-        AllScenariosResponse response = simulatorService.simulateAll(request);
+        AnnuityCompareResponse response = simulatorService.simulateAllCompare(request);
         return ResponseEntity.ok(response);
     }
 }

@@ -2,9 +2,13 @@ package com.portfolio.simulator;
 
 import com.portfolio.simulator.model.AllScenariosRequest;
 import com.portfolio.simulator.model.AllScenariosResponse;
+import com.portfolio.simulator.model.AnnuityCompareRequest;
+import com.portfolio.simulator.model.AnnuityCompareResponse;
+import com.portfolio.simulator.model.AnnuityRateTable;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.YearResult;
 import com.portfolio.simulator.service.SimulatorService;
+import com.portfolio.simulator.service.SpreadsheetLoaderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -27,7 +31,7 @@ class SimulatorServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SimulatorService();
+        service = new SimulatorService(new SpreadsheetLoaderService());
         defaultRequest = new SimulationRequest(); // uses spreadsheet defaults
     }
 
@@ -319,34 +323,170 @@ class SimulatorServiceTest {
     }
 
     @Test
-    void simulateAll_withCustomAllocation_differentOutcome() {
-        // Default allocation (spreadsheet)
+    void simulateAll_withLowStockAllocation_moreFailuresThanDefault() {
+        // Default 60% stocks
         AllScenariosRequest defaultReq = new AllScenariosRequest();
 
-        // 100% T-Bills — very conservative
-        AllScenariosRequest tBillsReq = new AllScenariosRequest();
-        tBillsReq.setSp500(0.0);
-        tBillsReq.setCrsp1_10(0.0);
-        tBillsReq.setOneMonth(1.0);
-        tBillsReq.setFiveYearUS(0.0);
-        tBillsReq.setCrsp6_10(0.0);
-        tBillsReq.setFfIntl(0.0);
-        tBillsReq.setDjUsReit(0.0);
-        tBillsReq.setFfEmgMkts(0.0);
+        // 0% stocks — all bonds/REIT, very conservative
+        AllScenariosRequest noStocksReq = new AllScenariosRequest();
+        noStocksReq.setStockMarketAllocation(0.0);
 
         AllScenariosResponse defaultResp = service.simulateAll(defaultReq);
-        AllScenariosResponse tBillsResp = service.simulateAll(tBillsReq);
+        AllScenariosResponse noStocksResp = service.simulateAll(noStocksReq);
 
-        // T-Bills only should have a higher failure rate than the diversified default
-        assertTrue(tBillsResp.getFailureCount() >= defaultResp.getFailureCount(),
-            "100%% T-Bills should not have fewer failures than the diversified default allocation");
+        // All-bonds should have at least as many failures as 60% diversified stocks
+        assertTrue(noStocksResp.getFailureCount() >= defaultResp.getFailureCount(),
+            "0% stocks should not have fewer failures than the 60% diversified default");
     }
 
     @Test
-    void simulateAll_allocationSumValidation() {
+    void simulateAll_defaultStockAllocationSumsToOne() {
         AllScenariosRequest req = new AllScenariosRequest();
-        // sum = 1.0 by default
-        assertEquals(1.0, req.allocationSum(), 0.001,
-            "Default AllScenariosRequest allocation should sum to 1.0");
+        double sum = req.getSp500() + req.getCrsp1_10() + req.getOneMonth()
+                   + req.getFiveYearUS() + req.getCrsp6_10() + req.getFfIntl()
+                   + req.getDjUsReit() + req.getFfEmgMkts();
+        assertEquals(1.0, sum, 0.001,
+            "Derived allocations for default 60% SMA should sum to 1.0");
+    }
+
+    @Test
+    void simulateAll_yearCountIsReflectedInResponse() {
+        AllScenariosRequest req = new AllScenariosRequest();
+        req.setYearCount(30);
+        AllScenariosResponse resp = service.simulateAll(req);
+        assertEquals(30, resp.getYearCount(), "Response should echo back the requested yearCount");
+    }
+
+    // -------------------------------------------------------------------------
+    // Annuity comparison tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void annuityCompare_rateMatchesRateTable() {
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(65);
+        req.setJoint(false);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        assertEquals(AnnuityRateTable.lookup(65, false), resp.getAnnuityRate(), 0.0001,
+            "Returned annuity rate should match AnnuityRateTable.lookup(65, false)");
+    }
+
+    @Test
+    void annuityCompare_jointRateLowerThanSingleForSameAge() {
+        AnnuityCompareRequest single = new AnnuityCompareRequest();
+        single.setAge(65);
+        single.setJoint(false);
+
+        AnnuityCompareRequest joint = new AnnuityCompareRequest();
+        joint.setAge(65);
+        joint.setJoint(true);
+
+        double singleRate = service.simulateAllCompare(single).getAnnuityRate();
+        double jointRate  = service.simulateAllCompare(joint).getAnnuityRate();
+
+        assertTrue(jointRate < singleRate,
+            "Joint payout rate should be lower than single-life rate for the same age");
+    }
+
+    @Test
+    void annuityCompare_initialAnnuityIncomeMatchesExpectedFormula() {
+        // initialAnnuityIncome = nestEgg * annuityPct * rate
+        double nestEgg     = 1_000_000.0;
+        double annuityPct  = 0.30;
+        int age            = 65;
+
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(age);
+        req.setJoint(false);
+        req.setAnnuityPercentage(annuityPct);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        double expectedIncome = nestEgg * annuityPct * AnnuityRateTable.lookup(age, false);
+        assertEquals(expectedIncome, resp.getInitialAnnuityIncome(), 1.0,
+            "Year-1 annuity income should equal nestEgg × annuityPct × rate");
+    }
+
+    @Test
+    void annuityCompare_withoutAnnuityMatchesStandardRun() {
+        // The "withoutAnnuity" leg should be identical to a plain simulateAll call
+        AllScenariosRequest stdReq = new AllScenariosRequest();
+        AnnuityCompareRequest cmpReq = new AnnuityCompareRequest();
+        // annuityPercentage default is 0.30, but withoutAnnuity leg ignores it
+
+        AllScenariosResponse standard = service.simulateAll(stdReq);
+        AnnuityCompareResponse compare = service.simulateAllCompare(cmpReq);
+
+        assertEquals(standard.getFailureCount(),        compare.getWithoutAnnuity().getFailureCount(),
+            "withoutAnnuity failure count should match plain simulateAll");
+        assertEquals(standard.getTotalScenarios(),      compare.getWithoutAnnuity().getTotalScenarios());
+        assertEquals(standard.getAverageEndingBalance(),compare.getWithoutAnnuity().getAverageEndingBalance(), 1.0);
+    }
+
+    @Test
+    void annuityCompare_highAnnuityPercentage_reducesBothFailuresAndPortfolioBalance() {
+        // A large annuity reduces the investable portfolio, but offsets withdrawals.
+        // With 80% annuitized, the annuity covers most income needs —
+        // portfolio should survive more often but end smaller.
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(65);
+        req.setJoint(false);
+        req.setAnnuityPercentage(0.80);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        // With 80% annuity at age 65 (6.9% rate) → $55,200/yr income on a $1M nest egg
+        // vs $40,000 target withdrawal → annuity fully covers income, portfolio grows unchecked
+        assertTrue(resp.getWithAnnuity().getFailureCount() <= resp.getWithoutAnnuity().getFailureCount(),
+            "80% annuity should not produce more failures than no annuity");
+    }
+
+    @Test
+    void annuityCompare_yearCountEchoedInBothResults() {
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setYearCount(30);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        assertEquals(30, resp.getWithoutAnnuity().getYearCount(),
+            "withoutAnnuity should echo yearCount=30");
+        assertEquals(30, resp.getWithAnnuity().getYearCount(),
+            "withAnnuity should echo yearCount=30");
+    }
+
+    @Test
+    void annuityCompare_olderAge_higherPayoutRate() {
+        // Rate table is monotonically increasing with age
+        AnnuityCompareRequest age60 = new AnnuityCompareRequest();
+        age60.setAge(60);
+        age60.setJoint(false);
+
+        AnnuityCompareRequest age75 = new AnnuityCompareRequest();
+        age75.setAge(75);
+        age75.setJoint(false);
+
+        double rate60 = service.simulateAllCompare(age60).getAnnuityRate();
+        double rate75 = service.simulateAllCompare(age75).getAnnuityRate();
+
+        assertTrue(rate75 > rate60,
+            "Older purchaser (75) should receive a higher payout rate than younger (60)");
+    }
+
+    @Test
+    void annuityCompare_zeroPctAnnuity_withAnnuityMatchesWithoutAnnuity() {
+        // 0% annuitized means no annuity income at all — both legs should be identical
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAnnuityPercentage(0.0);
+        req.setAge(65);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        assertEquals(resp.getWithoutAnnuity().getFailureCount(),
+                     resp.getWithAnnuity().getFailureCount(),
+            "0% annuity should produce the same failure count in both legs");
+        assertEquals(0.0, resp.getInitialAnnuityIncome(), 0.01,
+            "0% annuity should have zero initial income");
     }
 }

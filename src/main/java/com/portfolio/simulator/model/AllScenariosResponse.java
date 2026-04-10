@@ -35,6 +35,9 @@ public class AllScenariosResponse {
     /** The starting year that produced the earliest failure */
     private int worstStartYear;
 
+    /** Number of years simulated per scenario (matches the request's yearCount) */
+    private int yearCount;
+
     // --- Getters & Setters ---
 
     public List<ScenarioSummary> getScenarios() { return scenarios; }
@@ -63,4 +66,7 @@ public class AllScenariosResponse {
 
     public int getWorstStartYear() { return worstStartYear; }
     public void setWorstStartYear(int worstStartYear) { this.worstStartYear = worstStartYear; }
+
+    public int getYearCount() { return yearCount; }
+    public void setYearCount(int yearCount) { this.yearCount = yearCount; }
 }

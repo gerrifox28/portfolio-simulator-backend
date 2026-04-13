@@ -35,6 +35,9 @@ public class AllScenariosRequest {
     @DecimalMax(value = "0.10", message = "Expenses fee cannot exceed 10%")
     private double expensesAndMgmtFee = 0.012;
 
+    /** "inflation_adjusted" (default) or "fixed". */
+    private String withdrawalMode = "inflation_adjusted";
+
     // -------------------------------------------------------------------------
     // Primary getters & setters
     // -------------------------------------------------------------------------
@@ -53,6 +56,9 @@ public class AllScenariosRequest {
 
     public double getExpensesAndMgmtFee() { return expensesAndMgmtFee; }
     public void setExpensesAndMgmtFee(double expensesAndMgmtFee) { this.expensesAndMgmtFee = expensesAndMgmtFee; }
+
+    public String getWithdrawalMode() { return withdrawalMode; }
+    public void setWithdrawalMode(String withdrawalMode) { this.withdrawalMode = withdrawalMode; }
 
     // -------------------------------------------------------------------------
     // Derived allocation getters

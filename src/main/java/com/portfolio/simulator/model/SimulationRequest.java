@@ -49,6 +49,13 @@ public class SimulationRequest {
     @DecimalMin("0.0") @DecimalMax("1.0")
     private double ffEmgMkts = 0.072;
 
+    /**
+     * Withdrawal mode: "inflation_adjusted" (default) or "fixed".
+     * "inflation_adjusted" grows the withdrawal by CPI each year.
+     * "fixed" keeps the withdrawal at the initial amount every year.
+     */
+    private String withdrawalMode = "inflation_adjusted";
+
     // --- Getters & Setters ---
 
     public int getStartYear() { return startYear; }
@@ -86,6 +93,9 @@ public class SimulationRequest {
 
     public double getFfEmgMkts() { return ffEmgMkts; }
     public void setFfEmgMkts(double ffEmgMkts) { this.ffEmgMkts = ffEmgMkts; }
+
+    public String getWithdrawalMode() { return withdrawalMode; }
+    public void setWithdrawalMode(String withdrawalMode) { this.withdrawalMode = withdrawalMode; }
 
     /** Returns the sum of all allocation weights. Should equal 1.0. */
     public double allocationSum() {

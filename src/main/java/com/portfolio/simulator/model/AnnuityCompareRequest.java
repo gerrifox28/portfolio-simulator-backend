@@ -44,6 +44,9 @@ public class AnnuityCompareRequest {
     @DecimalMax(value = "1.0", message = "Annuity percentage cannot exceed 100%")
     private double annuityPercentage = 0.30;
 
+    /** "inflation_adjusted" (default) or "fixed". */
+    private String withdrawalMode = "inflation_adjusted";
+
     // ── Getters & Setters ─────────────────────────────────────────────────────
 
     public double getStartingNestEgg() { return startingNestEgg; }
@@ -69,6 +72,9 @@ public class AnnuityCompareRequest {
 
     public double getAnnuityPercentage() { return annuityPercentage; }
     public void setAnnuityPercentage(double v) { this.annuityPercentage = v; }
+
+    public String getWithdrawalMode() { return withdrawalMode; }
+    public void setWithdrawalMode(String v) { this.withdrawalMode = v; }
 
     // ── Derived allocation getters (same formula as AllScenariosRequest) ──────
 
@@ -97,6 +103,7 @@ public class AnnuityCompareRequest {
         r.setStockMarketAllocation(stockMarketAllocation);
         r.setYearCount(yearCount);
         r.setExpensesAndMgmtFee(expensesAndMgmtFee);
+        r.setWithdrawalMode(withdrawalMode);
         return r;
     }
 }

@@ -129,13 +129,19 @@ public class SimulatorService {
 
                 r.setPortfolioBeginning(prev.getPortfolioEnd());
 
-                boolean condOR  = (prev.getSequenceNumber() > 0) || (prev.getInflation() < 0);
-                boolean condAND = (prev.getPortfolioEnd() != 0);
                 double inflationAdjWithdrawal;
-                if (condOR && condAND) {
-                    inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prev.getInflation());
+                if ("fixed".equals(req.getWithdrawalMode())) {
+                    // Fixed: always withdraw the original amount regardless of inflation
+                    inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : req.getInitialWithdrawal();
                 } else {
-                    inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prev.getAnnualWithdrawal();
+                    // Inflation-adjusted (default): matches original spreadsheet formula
+                    boolean condOR  = (prev.getSequenceNumber() > 0) || (prev.getInflation() < 0);
+                    boolean condAND = (prev.getPortfolioEnd() != 0);
+                    if (condOR && condAND) {
+                        inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prev.getInflation());
+                    } else {
+                        inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prev.getAnnualWithdrawal();
+                    }
                 }
                 // Withdrawal cannot exceed beginning balance
                 r.setAnnualWithdrawal(Math.min(inflationAdjWithdrawal, r.getPortfolioBeginning()));
@@ -182,6 +188,7 @@ public class SimulatorService {
         base.setFfIntl(req.getFfIntl());
         base.setDjUsReit(req.getDjUsReit());
         base.setFfEmgMkts(req.getFfEmgMkts());
+        base.setWithdrawalMode(req.getWithdrawalMode());
 
         int maxYear = Collections.max(historicalData.keySet());
         int lastStartYear = maxYear - scenarioYears + 1; // last year with full N-yr data
@@ -453,6 +460,7 @@ public class SimulatorService {
         portfolioReq.setFfIntl(req.getFfIntl());
         portfolioReq.setDjUsReit(req.getDjUsReit());
         portfolioReq.setFfEmgMkts(req.getFfEmgMkts());
+        portfolioReq.setWithdrawalMode(req.getWithdrawalMode());
 
         int maxYear = Collections.max(historicalData.keySet());
         int lastStartYear = maxYear - scenarioYears + 1;
@@ -559,8 +567,10 @@ public class SimulatorService {
                 double cpi = prev.getInflation();
                 annuityIncome = annuityIncome * (1.0 + Math.min(cpi, 0.03));
 
-                // Full income target also grows by CPI
-                targetIncome = targetIncome * (1.0 + cpi);
+                // Full income target grows by CPI only when inflation-adjusted
+                if (!"fixed".equals(req.getWithdrawalMode())) {
+                    targetIncome = targetIncome * (1.0 + cpi);
+                }
 
                 portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
                 portfolioWithdrawal = Math.min(portfolioWithdrawal, Math.max(0, beginning));

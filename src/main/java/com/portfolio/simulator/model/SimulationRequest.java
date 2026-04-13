@@ -115,6 +115,12 @@ public class SimulationRequest {
     public double getAnnuityCap() { return annuityCap; }
     public void setAnnuityCap(double annuityCap) { this.annuityCap = annuityCap; }
 
+    /** Number of years to simulate — used for TPA table lookups. */
+    private int yearCount = 40;
+
+    public int getYearCount() { return yearCount; }
+    public void setYearCount(int yearCount) { this.yearCount = yearCount; }
+
     /** Returns the sum of all allocation weights. Should equal 1.0. */
     public double allocationSum() {
         return sp500 + crsp1_10 + oneMonth + fiveYearUS + crsp6_10

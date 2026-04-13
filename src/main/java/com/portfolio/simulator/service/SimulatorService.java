@@ -5,6 +5,7 @@ import com.portfolio.simulator.model.AllScenariosResponse;
 import com.portfolio.simulator.model.AnnuityCompareRequest;
 import com.portfolio.simulator.model.AnnuityCompareResponse;
 import com.portfolio.simulator.model.AnnuityRateTable;
+import com.portfolio.simulator.model.TpaTable;
 import com.portfolio.simulator.model.ScenarioSummary;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.YearResult;
@@ -136,15 +137,39 @@ public class SimulatorService {
                     r.setAnnualWithdrawal(pw);
                     r.setTotalIncome(pw + annuityIncome);
                 } else {
-                    // Standard portfolio-only withdrawal logic (matches original spreadsheet)
+                    // Standard portfolio-only withdrawal logic
                     double inflationAdjWithdrawal;
+                    double prevInflation = prev.getInflation();
+
                     if ("fixed".equals(req.getWithdrawalMode())) {
                         inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : req.getInitialWithdrawal();
+
+                    } else if ("tpa".equals(req.getWithdrawalMode())) {
+                        double prevWithdrawal = prev.getAnnualWithdrawal();
+                        if (prevInflation == 0) {
+                            // No adjustment
+                            inflationAdjWithdrawal = prevWithdrawal;
+                        } else if (prevInflation < 0) {
+                            // Negative CPI — always apply (reduces withdrawal)
+                            inflationAdjWithdrawal = prevWithdrawal * (1.0 + prevInflation);
+                        } else {
+                            // Positive CPI — apply only if TPA ratio allows it
+                            double ratio = prevWithdrawal * (1.0 + prevInflation) / r.getPortfolioBeginning();
+                            double threshold = TpaTable.lookup(seq, req.getYearCount());
+                            if (ratio <= threshold) {
+                                inflationAdjWithdrawal = prevWithdrawal * (1.0 + prevInflation);
+                            } else {
+                                inflationAdjWithdrawal = prevWithdrawal;
+                            }
+                        }
+                        if (prev.getPortfolioEnd() == 0) inflationAdjWithdrawal = 0.0;
+
                     } else {
-                        boolean condOR  = (prev.getSequenceNumber() > 0) || (prev.getInflation() < 0);
+                        // Inflation-adjusted (default) — matches original spreadsheet formula
+                        boolean condOR  = (prev.getSequenceNumber() > 0) || (prevInflation < 0);
                         boolean condAND = (prev.getPortfolioEnd() != 0);
                         if (condOR && condAND) {
-                            inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prev.getInflation());
+                            inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prevInflation);
                         } else {
                             inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prev.getAnnualWithdrawal();
                         }
@@ -192,6 +217,7 @@ public class SimulatorService {
         base.setDjUsReit(req.getDjUsReit());
         base.setFfEmgMkts(req.getFfEmgMkts());
         base.setWithdrawalMode(req.getWithdrawalMode());
+        base.setYearCount(scenarioYears);
 
         int maxYear = Collections.max(historicalData.keySet());
         int lastStartYear = maxYear - scenarioYears + 1; // last year with full N-yr data

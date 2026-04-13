@@ -51,6 +51,16 @@ public class AnnuityCompareRequest {
     @DecimalMin("0.0") @DecimalMax("1.0")
     private double annuityCap = 0.03;
 
+    private boolean manualAllocations = false;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mSp500     = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp1_10  = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp6_10  = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mFfIntl    = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mFfEmgMkts = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mDjUsReit  = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mOneMonth  = 0.0;
+    @DecimalMin("0.0") @DecimalMax("1.0") private double mFiveYearUS = 0.0;
+
     // ── Getters & Setters ─────────────────────────────────────────────────────
 
     public double getStartingNestEgg() { return startingNestEgg; }
@@ -83,24 +93,32 @@ public class AnnuityCompareRequest {
     public double getAnnuityCap() { return annuityCap; }
     public void setAnnuityCap(double v) { this.annuityCap = v; }
 
-    // ── Derived allocation getters (same formula as AllScenariosRequest) ──────
+    public boolean isManualAllocations() { return manualAllocations; }
+    public void setManualAllocations(boolean v) { this.manualAllocations = v; }
 
-    public double getSp500()      { return 0.0; }
-    public double getCrsp1_10()   { return stockMarketAllocation * 0.56; }
-    public double getCrsp6_10()   { return stockMarketAllocation * 0.10; }
-    public double getFfIntl()     { return stockMarketAllocation * 0.23; }
-    public double getFfEmgMkts()  { return stockMarketAllocation * 0.11; }
+    public double getMSp500()      { return mSp500; }      public void setMSp500(double v)      { this.mSp500 = v; }
+    public double getMCrsp1_10()   { return mCrsp1_10; }   public void setMCrsp1_10(double v)   { this.mCrsp1_10 = v; }
+    public double getMCrsp6_10()   { return mCrsp6_10; }   public void setMCrsp6_10(double v)   { this.mCrsp6_10 = v; }
+    public double getMFfIntl()     { return mFfIntl; }     public void setMFfIntl(double v)     { this.mFfIntl = v; }
+    public double getMFfEmgMkts()  { return mFfEmgMkts; }  public void setMFfEmgMkts(double v)  { this.mFfEmgMkts = v; }
+    public double getMDjUsReit()   { return mDjUsReit; }   public void setMDjUsReit(double v)   { this.mDjUsReit = v; }
+    public double getMOneMonth()   { return mOneMonth; }   public void setMOneMonth(double v)   { this.mOneMonth = v; }
+    public double getMFiveYearUS() { return mFiveYearUS; } public void setMFiveYearUS(double v) { this.mFiveYearUS = v; }
 
-    public double getDjUsReit() {
-        return Math.min(0.10, 1.0 - stockMarketAllocation);
-    }
+    // ── Derived allocation getters ────────────────────────────────────────────
+
+    public double getSp500()      { return manualAllocations ? mSp500     : 0.0; }
+    public double getCrsp1_10()   { return manualAllocations ? mCrsp1_10  : stockMarketAllocation * 0.56; }
+    public double getCrsp6_10()   { return manualAllocations ? mCrsp6_10  : stockMarketAllocation * 0.10; }
+    public double getFfIntl()     { return manualAllocations ? mFfIntl    : stockMarketAllocation * 0.23; }
+    public double getFfEmgMkts()  { return manualAllocations ? mFfEmgMkts : stockMarketAllocation * 0.11; }
+    public double getDjUsReit()   { return manualAllocations ? mDjUsReit  : Math.min(0.10, 1.0 - stockMarketAllocation); }
+    public double getOneMonth()   { return manualAllocations ? mOneMonth  : bondAlloc(); }
+    public double getFiveYearUS() { return manualAllocations ? mFiveYearUS : bondAlloc(); }
 
     private double bondAlloc() {
-        return (1.0 - stockMarketAllocation - getDjUsReit()) / 2.0;
+        return (1.0 - stockMarketAllocation - Math.min(0.10, 1.0 - stockMarketAllocation)) / 2.0;
     }
-
-    public double getOneMonth()   { return bondAlloc(); }
-    public double getFiveYearUS() { return bondAlloc(); }
 
     /** Converts this request to an AllScenariosRequest for the without-annuity run. */
     public AllScenariosRequest toAllScenariosRequest() {
@@ -111,6 +129,15 @@ public class AnnuityCompareRequest {
         r.setYearCount(yearCount);
         r.setExpensesAndMgmtFee(expensesAndMgmtFee);
         r.setWithdrawalMode(withdrawalMode);
+        r.setManualAllocations(manualAllocations);
+        r.setMSp500(mSp500);
+        r.setMCrsp1_10(mCrsp1_10);
+        r.setMCrsp6_10(mCrsp6_10);
+        r.setMFfIntl(mFfIntl);
+        r.setMFfEmgMkts(mFfEmgMkts);
+        r.setMDjUsReit(mDjUsReit);
+        r.setMOneMonth(mOneMonth);
+        r.setMFiveYearUS(mFiveYearUS);
         return r;
     }
 }

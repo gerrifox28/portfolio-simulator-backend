@@ -12,7 +12,8 @@ import jakarta.validation.constraints.Positive;
  * The full portfolio breakdown is derived automatically:
  *   Stocks (SMA):  56% CRSP 1-10, 10% CRSP 6-10, 23% F/F Intl, 11% F/F Emg Mkts
  *   REIT:          lesser of 10% or remaining after stocks
- *   Bonds:         remaining split equally between 1-mo T-Bills and 5-yr Treasuries
+ *   T-Bills:       lesser of 5% or remaining after REIT
+ *   5-Yr Treas:   remainder after T-Bills
  */
 public class AllScenariosRequest {
 
@@ -98,10 +99,14 @@ public class AllScenariosRequest {
     public double getFfIntl()     { return manualAllocations ? mFfIntl    : stockMarketAllocation * 0.23; }
     public double getFfEmgMkts()  { return manualAllocations ? mFfEmgMkts : stockMarketAllocation * 0.11; }
     public double getDjUsReit()   { return manualAllocations ? mDjUsReit  : Math.min(0.10, 1.0 - stockMarketAllocation); }
-    public double getOneMonth()   { return manualAllocations ? mOneMonth  : bondAlloc(); }
-    public double getFiveYearUS() { return manualAllocations ? mFiveYearUS : bondAlloc(); }
-
-    private double bondAlloc() {
-        return (1.0 - stockMarketAllocation - Math.min(0.10, 1.0 - stockMarketAllocation)) / 2.0;
+    public double getOneMonth() {
+        if (manualAllocations) return mOneMonth;
+        double remaining = 1.0 - stockMarketAllocation - getDjUsReit();
+        return Math.min(0.05, remaining);
+    }
+    public double getFiveYearUS() {
+        if (manualAllocations) return mFiveYearUS;
+        double remaining = 1.0 - stockMarketAllocation - getDjUsReit();
+        return Math.max(0.0, remaining - getOneMonth());
     }
 }

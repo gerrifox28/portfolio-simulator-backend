@@ -113,11 +113,15 @@ public class AnnuityCompareRequest {
     public double getFfIntl()     { return manualAllocations ? mFfIntl    : stockMarketAllocation * 0.23; }
     public double getFfEmgMkts()  { return manualAllocations ? mFfEmgMkts : stockMarketAllocation * 0.11; }
     public double getDjUsReit()   { return manualAllocations ? mDjUsReit  : Math.min(0.10, 1.0 - stockMarketAllocation); }
-    public double getOneMonth()   { return manualAllocations ? mOneMonth  : bondAlloc(); }
-    public double getFiveYearUS() { return manualAllocations ? mFiveYearUS : bondAlloc(); }
-
-    private double bondAlloc() {
-        return (1.0 - stockMarketAllocation - Math.min(0.10, 1.0 - stockMarketAllocation)) / 2.0;
+    public double getOneMonth() {
+        if (manualAllocations) return mOneMonth;
+        double remaining = 1.0 - stockMarketAllocation - getDjUsReit();
+        return Math.min(0.05, remaining);
+    }
+    public double getFiveYearUS() {
+        if (manualAllocations) return mFiveYearUS;
+        double remaining = 1.0 - stockMarketAllocation - getDjUsReit();
+        return Math.max(0.0, remaining - getOneMonth());
     }
 
     /** Converts this request to an AllScenariosRequest for the without-annuity run. */

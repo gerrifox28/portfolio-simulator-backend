@@ -47,6 +47,10 @@ public class AnnuityCompareRequest {
     /** "inflation_adjusted" (default) or "fixed". */
     private String withdrawalMode = "inflation_adjusted";
 
+    /** Annual cap on annuity COLA adjustment. Default 3%. */
+    @DecimalMin("0.0") @DecimalMax("1.0")
+    private double annuityCap = 0.03;
+
     // ── Getters & Setters ─────────────────────────────────────────────────────
 
     public double getStartingNestEgg() { return startingNestEgg; }
@@ -75,6 +79,9 @@ public class AnnuityCompareRequest {
 
     public String getWithdrawalMode() { return withdrawalMode; }
     public void setWithdrawalMode(String v) { this.withdrawalMode = v; }
+
+    public double getAnnuityCap() { return annuityCap; }
+    public void setAnnuityCap(double v) { this.annuityCap = v; }
 
     // ── Derived allocation getters (same formula as AllScenariosRequest) ──────
 

@@ -90,6 +90,10 @@ public class SimulatorService {
         List<YearResult> results = new ArrayList<>();
         int maxYear = Collections.max(historicalData.keySet());
 
+        boolean hasAnnuity = req.getAnnuityInitialIncome() > 0;
+        double annuityIncome = req.getAnnuityInitialIncome();
+        double targetIncome  = req.getInitialWithdrawal();
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -103,63 +107,62 @@ public class SimulatorService {
             r.setInflation(row[0]);
 
             if (seq == 1) {
-                // --- First year ---
-                // D6 = startingNestEgg, E6 = initialWithdrawal
                 r.setPortfolioBeginning(req.getStartingNestEgg());
-                r.setAnnualWithdrawal(req.getInitialWithdrawal());
-                double rate = computeBlendedReturn(year, req);
-                r.setPortfolioReturnRate(rate);
-
-                // G6: IF((D6>0), F6*(D6-E6), 0)
-                double gain = (r.getPortfolioBeginning() > 0)
-                    ? rate * (r.getPortfolioBeginning() - r.getAnnualWithdrawal())
-                    : 0.0;
-                r.setPortfolioReturnDollars(gain);
-                r.setTotalIncome(r.getAnnualWithdrawal());
-                // I6: D6-E6+G6
-                r.setPortfolioEnd(r.getPortfolioBeginning() - r.getAnnualWithdrawal() + gain);
-
+                if (hasAnnuity) {
+                    r.setAnnuityPayment(annuityIncome);
+                    r.setInflationAdjPct(0.0);
+                    double pw = Math.min(Math.max(0, targetIncome - annuityIncome), req.getStartingNestEgg());
+                    r.setAnnualWithdrawal(pw);
+                    r.setTotalIncome(pw + annuityIncome);
+                } else {
+                    r.setAnnualWithdrawal(req.getInitialWithdrawal());
+                    r.setTotalIncome(req.getInitialWithdrawal());
+                }
             } else {
-                // --- Subsequent years ---
-                // E7: MIN( IF( OR(prevSeq>0, prevCpi<0) AND (prevEnd<>0),
-                //               prevWithdraw*(1+prevCpi),
-                //               IF(prevEnd=0, 0, prevWithdraw) ),
-                //          beginningBalance )
                 YearResult prev = results.get(seq - 2);
-
                 r.setPortfolioBeginning(prev.getPortfolioEnd());
 
-                double inflationAdjWithdrawal;
-                if ("fixed".equals(req.getWithdrawalMode())) {
-                    // Fixed: always withdraw the original amount regardless of inflation
-                    inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : req.getInitialWithdrawal();
-                } else {
-                    // Inflation-adjusted (default): matches original spreadsheet formula
-                    boolean condOR  = (prev.getSequenceNumber() > 0) || (prev.getInflation() < 0);
-                    boolean condAND = (prev.getPortfolioEnd() != 0);
-                    if (condOR && condAND) {
-                        inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prev.getInflation());
-                    } else {
-                        inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prev.getAnnualWithdrawal();
+                if (hasAnnuity) {
+                    double cpi = prev.getInflation();
+                    double adjPct = Math.min(cpi, req.getAnnuityCap());
+                    annuityIncome = annuityIncome * (1.0 + adjPct);
+                    if (!"fixed".equals(req.getWithdrawalMode())) {
+                        targetIncome = targetIncome * (1.0 + cpi);
                     }
+                    r.setAnnuityPayment(annuityIncome);
+                    r.setInflationAdjPct(adjPct);
+                    double pw = Math.max(0, targetIncome - annuityIncome);
+                    pw = Math.min(pw, Math.max(0, prev.getPortfolioEnd()));
+                    r.setAnnualWithdrawal(pw);
+                    r.setTotalIncome(pw + annuityIncome);
+                } else {
+                    // Standard portfolio-only withdrawal logic (matches original spreadsheet)
+                    double inflationAdjWithdrawal;
+                    if ("fixed".equals(req.getWithdrawalMode())) {
+                        inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : req.getInitialWithdrawal();
+                    } else {
+                        boolean condOR  = (prev.getSequenceNumber() > 0) || (prev.getInflation() < 0);
+                        boolean condAND = (prev.getPortfolioEnd() != 0);
+                        if (condOR && condAND) {
+                            inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prev.getInflation());
+                        } else {
+                            inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prev.getAnnualWithdrawal();
+                        }
+                    }
+                    r.setAnnualWithdrawal(Math.min(inflationAdjWithdrawal, r.getPortfolioBeginning()));
+                    r.setTotalIncome(r.getAnnualWithdrawal());
                 }
-                // Withdrawal cannot exceed beginning balance
-                r.setAnnualWithdrawal(Math.min(inflationAdjWithdrawal, r.getPortfolioBeginning()));
-
-                double rate = computeBlendedReturn(year, req);
-                r.setPortfolioReturnRate(rate);
-
-                // G7: IF((D7>0), F7*(D7-E7), 0)
-                double gain = (r.getPortfolioBeginning() > 0)
-                    ? rate * (r.getPortfolioBeginning() - r.getAnnualWithdrawal())
-                    : 0.0;
-                r.setPortfolioReturnDollars(gain);
-                r.setTotalIncome(r.getAnnualWithdrawal());
-                r.setPortfolioEnd(r.getPortfolioBeginning() - r.getAnnualWithdrawal() + gain);
             }
 
-            results.add(r);
+            double rate = computeBlendedReturn(year, req);
+            r.setPortfolioReturnRate(rate);
+            double gain = (r.getPortfolioBeginning() > 0)
+                ? rate * (r.getPortfolioBeginning() - r.getAnnualWithdrawal())
+                : 0.0;
+            r.setPortfolioReturnDollars(gain);
+            r.setPortfolioEnd(r.getPortfolioBeginning() - r.getAnnualWithdrawal() + gain);
 
+            results.add(r);
             if (r.getPortfolioEnd() <= 0) break;
         }
 
@@ -461,6 +464,7 @@ public class SimulatorService {
         portfolioReq.setDjUsReit(req.getDjUsReit());
         portfolioReq.setFfEmgMkts(req.getFfEmgMkts());
         portfolioReq.setWithdrawalMode(req.getWithdrawalMode());
+        portfolioReq.setAnnuityCap(req.getAnnuityCap());
 
         int maxYear = Collections.max(historicalData.keySet());
         int lastStartYear = maxYear - scenarioYears + 1;
@@ -563,9 +567,10 @@ public class SimulatorService {
                 YearResult prev = results.get(seq - 2);
                 beginning = prev.getPortfolioEnd();
 
-                // Annuity grows by CPI, capped at 3%
+                // Annuity grows by CPI, capped at annuityCap
                 double cpi = prev.getInflation();
-                annuityIncome = annuityIncome * (1.0 + Math.min(cpi, 0.03));
+                double adjPct = Math.min(cpi, req.getAnnuityCap());
+                annuityIncome = annuityIncome * (1.0 + adjPct);
 
                 // Full income target grows by CPI only when inflation-adjusted
                 if (!"fixed".equals(req.getWithdrawalMode())) {

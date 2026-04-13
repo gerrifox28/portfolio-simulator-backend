@@ -56,6 +56,18 @@ public class SimulationRequest {
      */
     private String withdrawalMode = "inflation_adjusted";
 
+    /**
+     * Year-1 annuity income (0 = no annuity). When > 0, simulate() applies
+     * annuity logic: portfolio withdrawal = max(0, targetIncome - annuityIncome).
+     */
+    private double annuityInitialIncome = 0.0;
+
+    /**
+     * Annual cap on the annuity COLA adjustment (e.g. 0.03 = 3%).
+     * Only used when annuityInitialIncome > 0.
+     */
+    private double annuityCap = 0.03;
+
     // --- Getters & Setters ---
 
     public int getStartYear() { return startYear; }
@@ -96,6 +108,12 @@ public class SimulationRequest {
 
     public String getWithdrawalMode() { return withdrawalMode; }
     public void setWithdrawalMode(String withdrawalMode) { this.withdrawalMode = withdrawalMode; }
+
+    public double getAnnuityInitialIncome() { return annuityInitialIncome; }
+    public void setAnnuityInitialIncome(double annuityInitialIncome) { this.annuityInitialIncome = annuityInitialIncome; }
+
+    public double getAnnuityCap() { return annuityCap; }
+    public void setAnnuityCap(double annuityCap) { this.annuityCap = annuityCap; }
 
     /** Returns the sum of all allocation weights. Should equal 1.0. */
     public double allocationSum() {

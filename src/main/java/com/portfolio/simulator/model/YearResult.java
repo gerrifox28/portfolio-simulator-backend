@@ -27,11 +27,17 @@ public class YearResult {
     /** Dollar gain/loss: rate × (beginning − withdrawal) */
     private double portfolioReturnDollars;
 
-    /** Total income drawn (equals annualWithdrawal) */
+    /** Total income drawn (portfolio withdrawal + annuity payment) */
     private double totalIncome;
 
     /** Portfolio value at end of year: beginning − withdrawal + gain */
     private double portfolioEnd;
+
+    /** Annuity payment received this year (0 for non-annuity simulations) */
+    private double annuityPayment;
+
+    /** Inflation adjustment % applied to annuity this year, subject to cap (0 for year 1 and non-annuity) */
+    private double inflationAdjPct;
 
     // --- Getters & Setters ---
 
@@ -61,4 +67,10 @@ public class YearResult {
 
     public double getPortfolioEnd() { return portfolioEnd; }
     public void setPortfolioEnd(double portfolioEnd) { this.portfolioEnd = portfolioEnd; }
+
+    public double getAnnuityPayment() { return annuityPayment; }
+    public void setAnnuityPayment(double annuityPayment) { this.annuityPayment = annuityPayment; }
+
+    public double getInflationAdjPct() { return inflationAdjPct; }
+    public void setInflationAdjPct(double inflationAdjPct) { this.inflationAdjPct = inflationAdjPct; }
 }

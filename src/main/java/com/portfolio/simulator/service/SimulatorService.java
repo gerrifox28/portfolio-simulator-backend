@@ -125,7 +125,7 @@ public class SimulatorService {
 
                 if (hasAnnuity) {
                     double cpi = prev.getInflation();
-                    double adjPct = Math.min(cpi, req.getAnnuityCap());
+                    double adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
                     annuityIncome = annuityIncome * (1.0 + adjPct);
                     if (!"fixed".equals(req.getWithdrawalMode())) {
                         targetIncome = targetIncome * (1.0 + cpi);
@@ -593,9 +593,9 @@ public class SimulatorService {
                 YearResult prev = results.get(seq - 2);
                 beginning = prev.getPortfolioEnd();
 
-                // Annuity grows by CPI, capped at annuityCap
+                // Annuity grows by CPI, capped at annuityCap; never decreases
                 double cpi = prev.getInflation();
-                double adjPct = Math.min(cpi, req.getAnnuityCap());
+                double adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
                 annuityIncome = annuityIncome * (1.0 + adjPct);
 
                 // Full income target grows by CPI only when inflation-adjusted

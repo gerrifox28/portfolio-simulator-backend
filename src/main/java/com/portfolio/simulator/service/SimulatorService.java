@@ -125,15 +125,36 @@ public class SimulatorService {
 
                 if (hasAnnuity) {
                     double cpi = prev.getInflation();
+
+                    // Annuity engine — independent of withdrawal
                     double adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
                     annuityIncome = annuityIncome * (1.0 + adjPct);
-                    if (!"fixed".equals(req.getWithdrawalMode())) {
-                        targetIncome = targetIncome * (1.0 + cpi);
+
+                    // Withdrawal engine — independent of annuity
+                    double pw;
+                    if ("tpa".equals(req.getWithdrawalMode())) {
+                        double prevWithdrawal = prev.getAnnualWithdrawal();
+                        if (prev.getPortfolioEnd() == 0) {
+                            pw = 0.0;
+                        } else if (cpi == 0) {
+                            pw = prevWithdrawal;
+                        } else if (cpi < 0) {
+                            pw = prevWithdrawal * (1.0 + cpi);
+                        } else {
+                            double ratio = prevWithdrawal * (1.0 + cpi) / r.getPortfolioBeginning();
+                            double threshold = TpaTable.lookup(seq, req.getYearCount());
+                            pw = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
+                        }
+                    } else {
+                        if (!"fixed".equals(req.getWithdrawalMode())) {
+                            targetIncome = targetIncome * (1.0 + cpi);
+                        }
+                        pw = Math.max(0, targetIncome - annuityIncome);
                     }
+                    pw = Math.min(pw, Math.max(0, prev.getPortfolioEnd()));
+
                     r.setAnnuityPayment(annuityIncome);
                     r.setInflationAdjPct(adjPct);
-                    double pw = Math.max(0, targetIncome - annuityIncome);
-                    pw = Math.min(pw, Math.max(0, prev.getPortfolioEnd()));
                     r.setAnnualWithdrawal(pw);
                     r.setTotalIncome(pw + annuityIncome);
                 } else {
@@ -593,17 +614,32 @@ public class SimulatorService {
                 YearResult prev = results.get(seq - 2);
                 beginning = prev.getPortfolioEnd();
 
-                // Annuity grows by CPI, capped at annuityCap; never decreases
                 double cpi = prev.getInflation();
+
+                // Annuity engine — independent of withdrawal; never decreases
                 double adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
                 annuityIncome = annuityIncome * (1.0 + adjPct);
 
-                // Full income target grows by CPI only when inflation-adjusted
-                if (!"fixed".equals(req.getWithdrawalMode())) {
-                    targetIncome = targetIncome * (1.0 + cpi);
+                // Withdrawal engine — independent of annuity
+                if ("tpa".equals(req.getWithdrawalMode())) {
+                    double prevWithdrawal = prev.getAnnualWithdrawal();
+                    if (prev.getPortfolioEnd() == 0) {
+                        portfolioWithdrawal = 0.0;
+                    } else if (cpi == 0) {
+                        portfolioWithdrawal = prevWithdrawal;
+                    } else if (cpi < 0) {
+                        portfolioWithdrawal = prevWithdrawal * (1.0 + cpi);
+                    } else {
+                        double ratio = prevWithdrawal * (1.0 + cpi) / beginning;
+                        double threshold = TpaTable.lookup(seq, req.getYearCount());
+                        portfolioWithdrawal = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
+                    }
+                } else {
+                    if (!"fixed".equals(req.getWithdrawalMode())) {
+                        targetIncome = targetIncome * (1.0 + cpi);
+                    }
+                    portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
                 }
-
-                portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
                 portfolioWithdrawal = Math.min(portfolioWithdrawal, Math.max(0, beginning));
             }
 

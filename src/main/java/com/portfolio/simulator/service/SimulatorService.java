@@ -229,16 +229,9 @@ public class SimulatorService {
         base.setStartingNestEgg(req.getStartingNestEgg());
         base.setInitialWithdrawal(req.getInitialWithdrawal());
         base.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
-        base.setSp500(req.getSp500());
-        base.setCrsp1_10(req.getCrsp1_10());
-        base.setOneMonth(req.getOneMonth());
-        base.setFiveYearUS(req.getFiveYearUS());
-        base.setCrsp6_10(req.getCrsp6_10());
-        base.setFfIntl(req.getFfIntl());
-        base.setDjUsReit(req.getDjUsReit());
-        base.setFfEmgMkts(req.getFfEmgMkts());
         base.setWithdrawalMode(req.getWithdrawalMode());
         base.setYearCount(scenarioYears);
+        applyAllocations(base, req);
 
         int maxYear = Collections.max(historicalData.keySet());
         int lastStartYear = maxYear - scenarioYears + 1; // last year with full N-yr data
@@ -300,6 +293,64 @@ public class SimulatorService {
         resp.setBestStartYear(bestStartYear);
         resp.setYearCount(scenarioYears);
         return resp;
+    }
+
+    // -------------------------------------------------------------------------
+    // ALLOCATION HELPERS — resolve manual or auto allocations onto a SimulationRequest
+    // -------------------------------------------------------------------------
+
+    /** Applies manual or auto-derived allocations from AllScenariosRequest to target. */
+    private void applyAllocations(SimulationRequest target, AllScenariosRequest src) {
+        if (src.isManualAllocations()) {
+            target.setSp500(src.getMSp500());
+            target.setCrsp1_10(src.getMCrsp1_10());
+            target.setCrsp6_10(src.getMCrsp6_10());
+            target.setFfIntl(src.getMFfIntl());
+            target.setFfEmgMkts(src.getMFfEmgMkts());
+            target.setDjUsReit(src.getMDjUsReit());
+            target.setOneMonth(src.getMOneMonth());
+            target.setFiveYearUS(src.getMFiveYearUS());
+        } else {
+            double sma      = src.getStockMarketAllocation();
+            double reit     = Math.min(0.10, 1.0 - sma);
+            double rem      = 1.0 - sma - reit;
+            double oneMonth = Math.min(0.05, rem);
+            target.setSp500(0.0);
+            target.setCrsp1_10(sma * 0.56);
+            target.setCrsp6_10(sma * 0.10);
+            target.setFfIntl(sma * 0.23);
+            target.setFfEmgMkts(sma * 0.11);
+            target.setDjUsReit(reit);
+            target.setOneMonth(oneMonth);
+            target.setFiveYearUS(Math.max(0.0, rem - oneMonth));
+        }
+    }
+
+    /** Applies manual or auto-derived allocations from AnnuityCompareRequest to target. */
+    private void applyAllocations(SimulationRequest target, AnnuityCompareRequest src) {
+        if (src.isManualAllocations()) {
+            target.setSp500(src.getMSp500());
+            target.setCrsp1_10(src.getMCrsp1_10());
+            target.setCrsp6_10(src.getMCrsp6_10());
+            target.setFfIntl(src.getMFfIntl());
+            target.setFfEmgMkts(src.getMFfEmgMkts());
+            target.setDjUsReit(src.getMDjUsReit());
+            target.setOneMonth(src.getMOneMonth());
+            target.setFiveYearUS(src.getMFiveYearUS());
+        } else {
+            double sma      = src.getStockMarketAllocation();
+            double reit     = Math.min(0.10, 1.0 - sma);
+            double rem      = 1.0 - sma - reit;
+            double oneMonth = Math.min(0.05, rem);
+            target.setSp500(0.0);
+            target.setCrsp1_10(sma * 0.56);
+            target.setCrsp6_10(sma * 0.10);
+            target.setFfIntl(sma * 0.23);
+            target.setFfEmgMkts(sma * 0.11);
+            target.setDjUsReit(reit);
+            target.setOneMonth(oneMonth);
+            target.setFiveYearUS(Math.max(0.0, rem - oneMonth));
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -480,18 +531,6 @@ public class SimulatorService {
     private AllScenariosResponse simulateAllWithAnnuity(AnnuityCompareRequest req, double annuityRate) {
         int scenarioYears = req.getYearCount();
 
-        // Build allocation request from the compare request fields
-        SimulationRequest base = new SimulationRequest();
-        base.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
-        base.setSp500(req.getSp500());
-        base.setCrsp1_10(req.getCrsp1_10());
-        base.setOneMonth(req.getOneMonth());
-        base.setFiveYearUS(req.getFiveYearUS());
-        base.setCrsp6_10(req.getCrsp6_10());
-        base.setFfIntl(req.getFfIntl());
-        base.setDjUsReit(req.getDjUsReit());
-        base.setFfEmgMkts(req.getFfEmgMkts());
-
         // Annuity configuration
         double annuityPct           = req.getAnnuityPercentage();
         double portfolioNestEgg     = req.getStartingNestEgg() * (1.0 - annuityPct);
@@ -502,16 +541,10 @@ public class SimulatorService {
         portfolioReq.setStartingNestEgg(portfolioNestEgg);
         portfolioReq.setInitialWithdrawal(req.getInitialWithdrawal());
         portfolioReq.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
-        portfolioReq.setSp500(req.getSp500());
-        portfolioReq.setCrsp1_10(req.getCrsp1_10());
-        portfolioReq.setOneMonth(req.getOneMonth());
-        portfolioReq.setFiveYearUS(req.getFiveYearUS());
-        portfolioReq.setCrsp6_10(req.getCrsp6_10());
-        portfolioReq.setFfIntl(req.getFfIntl());
-        portfolioReq.setDjUsReit(req.getDjUsReit());
-        portfolioReq.setFfEmgMkts(req.getFfEmgMkts());
         portfolioReq.setWithdrawalMode(req.getWithdrawalMode());
         portfolioReq.setAnnuityCap(req.getAnnuityCap());
+        portfolioReq.setYearCount(scenarioYears);
+        applyAllocations(portfolioReq, req);
 
         int maxYear = Collections.max(historicalData.keySet());
         int lastStartYear = maxYear - scenarioYears + 1;

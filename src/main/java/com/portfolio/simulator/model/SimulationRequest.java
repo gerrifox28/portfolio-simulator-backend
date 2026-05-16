@@ -116,7 +116,7 @@ public class SimulationRequest {
     public void setAnnuityCap(double annuityCap) { this.annuityCap = annuityCap; }
 
     /** Number of years to simulate — used for TPA table lookups. */
-    private int yearCount = 40;
+    private int yearCount = 30;
 
     public int getYearCount() { return yearCount; }
     public void setYearCount(int yearCount) { this.yearCount = yearCount; }

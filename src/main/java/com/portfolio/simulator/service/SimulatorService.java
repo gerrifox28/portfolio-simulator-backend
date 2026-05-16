@@ -146,10 +146,13 @@ public class SimulatorService {
                             pw = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
                         }
                     } else {
-                        if (!"fixed".equals(req.getWithdrawalMode())) {
-                            targetIncome = targetIncome * (1.0 + cpi);
+                        double prevWithdrawal = prev.getAnnualWithdrawal();
+                        if ("fixed".equals(req.getWithdrawalMode())) {
+                            pw = prevWithdrawal;
+                        } else {
+                            pw = prevWithdrawal * (1.0 + cpi);
                         }
-                        pw = Math.max(0, targetIncome - annuityIncome);
+                        pw = Math.max(0, pw);
                     }
                     pw = Math.min(pw, Math.max(0, prev.getPortfolioEnd()));
 
@@ -668,10 +671,13 @@ public class SimulatorService {
                         portfolioWithdrawal = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
                     }
                 } else {
-                    if (!"fixed".equals(req.getWithdrawalMode())) {
-                        targetIncome = targetIncome * (1.0 + cpi);
+                    double prevWithdrawal = prev.getAnnualWithdrawal();
+                    if ("fixed".equals(req.getWithdrawalMode())) {
+                        portfolioWithdrawal = prevWithdrawal;
+                    } else {
+                        portfolioWithdrawal = prevWithdrawal * (1.0 + cpi);
                     }
-                    portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
+                    portfolioWithdrawal = Math.max(0, portfolioWithdrawal);
                 }
                 portfolioWithdrawal = Math.min(portfolioWithdrawal, Math.max(0, beginning));
             }

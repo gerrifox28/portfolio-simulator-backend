@@ -489,4 +489,169 @@ class SimulatorServiceTest {
         assertEquals(0.0, resp.getInitialAnnuityIncome(), 0.01,
             "0% annuity should have zero initial income");
     }
+
+    // -------------------------------------------------------------------------
+    // Regression: manual allocation mXxx fields used in simulateAll
+    // Bug: @JsonProperty missing → Jackson dropped mXxx values → 0% blended
+    // return → all scenarios failed prematurely in manual allocation mode.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void simulateAll_manualAllocations_producesDistinctResultsFromAutoMode() {
+        // Manual: 100% 5-yr treasuries (conservative but earns real returns)
+        AllScenariosRequest manualReq = new AllScenariosRequest();
+        manualReq.setManualAllocations(true);
+        manualReq.setMFiveYearUS(1.0);
+        manualReq.setExpensesAndMgmtFee(0.0);
+        manualReq.setYearCount(30);
+
+        // Auto: default 60% globally diversified stocks
+        AllScenariosRequest autoReq = new AllScenariosRequest();
+        autoReq.setExpensesAndMgmtFee(0.0);
+        autoReq.setYearCount(30);
+
+        AllScenariosResponse manualResp = service.simulateAll(manualReq);
+        AllScenariosResponse autoResp   = service.simulateAll(autoReq);
+
+        assertNotEquals(manualResp.getAverageEndingBalance(), autoResp.getAverageEndingBalance(), 1000.0,
+            "Manual 100% 5-yr treasuries should produce different average balance from auto 60% stocks");
+
+        // If mXxx fields were silently 0, the blended return would be 0% and failure rate ~100%.
+        assertTrue(manualResp.getFailureRate() < 100.0,
+            "Manual 100% 5-yr treasuries must not have 100% failure rate (would indicate allocations were 0)");
+    }
+
+    @Test
+    void simulateAll_manualAllocations_sameStartYear_matchesSingleSimulation() {
+        // The all-scenarios result for a given start year must match what the single
+        // simulation would produce with the same manual allocation.
+        int startYear = 1975;
+        int yearCount = 30;
+
+        // Single simulation with explicit allocation
+        SimulationRequest singleReq = new SimulationRequest();
+        singleReq.setStartYear(startYear);
+        singleReq.setStartingNestEgg(1_000_000.0);
+        singleReq.setInitialWithdrawal(43_000.0);
+        singleReq.setExpensesAndMgmtFee(0.0);
+        singleReq.setYearCount(yearCount);
+        singleReq.setSp500(0.0);   singleReq.setCrsp1_10(0.50); singleReq.setOneMonth(0.0);
+        singleReq.setFiveYearUS(0.50); singleReq.setCrsp6_10(0.0); singleReq.setFfIntl(0.0);
+        singleReq.setDjUsReit(0.0); singleReq.setFfEmgMkts(0.0);
+
+        List<YearResult> singleResults = service.simulate(singleReq);
+        boolean singleFailed = singleResults.size() < yearCount
+                || singleResults.get(Math.min(yearCount, singleResults.size()) - 1).getPortfolioEnd() <= 0;
+
+        // All-scenarios with matching manual allocation
+        AllScenariosRequest allReq = new AllScenariosRequest();
+        allReq.setStartingNestEgg(1_000_000.0);
+        allReq.setInitialWithdrawal(43_000.0);
+        allReq.setExpensesAndMgmtFee(0.0);
+        allReq.setYearCount(yearCount);
+        allReq.setManualAllocations(true);
+        allReq.setMCrsp1_10(0.50);
+        allReq.setMFiveYearUS(0.50);
+
+        AllScenariosResponse allResp = service.simulateAll(allReq);
+        boolean allFailed = allResp.getScenarios().stream()
+                .filter(s -> s.getStartYear() == startYear)
+                .findFirst()
+                .orElseThrow()
+                .isFailed();
+
+        assertEquals(singleFailed, allFailed,
+            "For start year " + startYear + ", single simulation and all-scenarios must agree on failure");
+    }
+
+    // -------------------------------------------------------------------------
+    // Regression: annuity withdrawal independence
+    // Bug: from Year 2 onward, withdrawal was computed as
+    //   (inflated target income − annuity income)
+    // so when CPI > COLA cap, the gap widened and withdrawal grew faster than
+    // inflation. Fix: withdrawal grows from prior year's withdrawal × (1 + CPI).
+    // -------------------------------------------------------------------------
+
+    @Test
+    void annuity_year2Withdrawal_growsFromPriorWithdrawal_notFromTargetGap() {
+        // 1951 CPI = 6.0%, COLA cap = 3%.
+        // Year 1: target=$40K, annuity=$20K → portfolio withdrawal=$20K
+        // Year 2 CORRECT: $20K × 1.06 = $21,200
+        // Year 2 WRONG:   ($40K×1.06) − ($20K×1.03) = $42,400 − $20,600 = $21,800
+
+        SimulationRequest req = buildAnnuityRequest(20_000.0);
+        List<YearResult> results = service.simulate(req);
+
+        YearResult year1 = results.get(0);
+        YearResult year2 = results.get(1);
+
+        double cpi = year1.getInflation(); // 0.06 from 1951 historical data
+        double expectedWithdrawal = year1.getAnnualWithdrawal() * (1.0 + cpi);
+
+        assertEquals(expectedWithdrawal, year2.getAnnualWithdrawal(), 1.0,
+            "Year 2 withdrawal must equal Year 1 withdrawal × (1 + Year 1 CPI)");
+
+        // Confirm it does NOT equal the old gap-fill calculation
+        double wrongWithdrawal = (40_000.0 * (1.0 + cpi)) - year2.getAnnuityPayment();
+        assertNotEquals(wrongWithdrawal, year2.getAnnualWithdrawal(), 1.0,
+            "Withdrawal must not be computed as (inflated target − annuity payment)");
+    }
+
+    @Test
+    void annuity_withdrawalGrowthRate_isIndependentOfAnnuitySize() {
+        // Two portfolios with the same desired income but different annuity sizes.
+        // After the fix, both Year-2 withdrawals must grow at the same CPI rate —
+        // the annuity size must not influence withdrawal growth.
+
+        List<YearResult> smallAnnuity = service.simulate(buildAnnuityRequest(15_000.0));
+        List<YearResult> largeAnnuity = service.simulate(buildAnnuityRequest(25_000.0));
+
+        double smallGrowth = smallAnnuity.get(1).getAnnualWithdrawal()
+                           / smallAnnuity.get(0).getAnnualWithdrawal();
+        double largeGrowth = largeAnnuity.get(1).getAnnualWithdrawal()
+                           / largeAnnuity.get(0).getAnnualWithdrawal();
+
+        assertEquals(smallGrowth, largeGrowth, 0.001,
+            "Withdrawal growth rate (Year2/Year1) must be equal regardless of annuity size");
+    }
+
+    @Test
+    void annuity_fixedMode_withdrawalRemainsConstantYearOverYear() {
+        SimulationRequest req = buildAnnuityRequest(15_000.0);
+        req.setWithdrawalMode("fixed");
+
+        List<YearResult> results = service.simulate(req);
+
+        double year1 = results.get(0).getAnnualWithdrawal();
+        double year2 = results.get(1).getAnnualWithdrawal();
+        double year3 = results.get(2).getAnnualWithdrawal();
+
+        assertEquals(year1, year2, 1.0, "Fixed mode: Year 2 withdrawal must equal Year 1");
+        assertEquals(year1, year3, 1.0, "Fixed mode: Year 3 withdrawal must equal Year 1");
+    }
+
+    @Test
+    void annuity_totalIncome_equalsWithdrawalPlusAnnuityPayment() {
+        List<YearResult> results = service.simulate(buildAnnuityRequest(20_000.0));
+
+        for (YearResult r : results) {
+            assertEquals(r.getAnnualWithdrawal() + r.getAnnuityPayment(),
+                         r.getTotalIncome(), 1.0,
+                "Total income must equal withdrawal + annuity payment in year " + r.getYear());
+        }
+    }
+
+    private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {
+        SimulationRequest req = new SimulationRequest();
+        req.setStartYear(1951);
+        req.setStartingNestEgg(2_000_000.0); // large enough that portfolio won't exhaust
+        req.setInitialWithdrawal(40_000.0);
+        req.setAnnuityInitialIncome(initialAnnuityIncome);
+        req.setAnnuityCap(0.03);
+        req.setWithdrawalMode("inflation_adjusted");
+        req.setSp500(0.0); req.setCrsp1_10(0.0); req.setOneMonth(0.0);
+        req.setFiveYearUS(1.0); // 100% 5-yr treasuries for clean calculations
+        req.setCrsp6_10(0.0); req.setFfIntl(0.0); req.setDjUsReit(0.0); req.setFfEmgMkts(0.0);
+        return req;
+    }
 }

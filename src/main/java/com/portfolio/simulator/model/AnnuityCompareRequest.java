@@ -1,5 +1,6 @@
 package com.portfolio.simulator.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
@@ -52,14 +53,14 @@ public class AnnuityCompareRequest {
     private double annuityCap = 0.03;
 
     private boolean manualAllocations = false;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mSp500     = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp1_10  = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp6_10  = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mFfIntl    = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mFfEmgMkts = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mDjUsReit  = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mOneMonth  = 0.0;
-    @DecimalMin("0.0") @DecimalMax("1.0") private double mFiveYearUS = 0.0;
+    @JsonProperty("mSp500")     @DecimalMin("0.0") @DecimalMax("1.0") private double mSp500     = 0.0;
+    @JsonProperty("mCrsp1_10")  @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp1_10  = 0.0;
+    @JsonProperty("mCrsp6_10")  @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp6_10  = 0.0;
+    @JsonProperty("mFfIntl")    @DecimalMin("0.0") @DecimalMax("1.0") private double mFfIntl    = 0.0;
+    @JsonProperty("mFfEmgMkts") @DecimalMin("0.0") @DecimalMax("1.0") private double mFfEmgMkts = 0.0;
+    @JsonProperty("mDjUsReit")  @DecimalMin("0.0") @DecimalMax("1.0") private double mDjUsReit  = 0.0;
+    @JsonProperty("mOneMonth")  @DecimalMin("0.0") @DecimalMax("1.0") private double mOneMonth  = 0.0;
+    @JsonProperty("mFiveYearUS") @DecimalMin("0.0") @DecimalMax("1.0") private double mFiveYearUS = 0.0;
 
     // ── Getters & Setters ─────────────────────────────────────────────────────
 

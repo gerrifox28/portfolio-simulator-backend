@@ -212,7 +212,9 @@ public class SimulatorService {
             r.setPortfolioEnd(r.getPortfolioBeginning() - r.getAnnualWithdrawal() + gain);
 
             results.add(r);
-            if (r.getPortfolioEnd() <= 0) break;
+            // For annuity scenarios, continue past portfolio exhaustion so annuity
+            // income is recorded for every year up to yearCount.
+            if (r.getPortfolioEnd() <= 0 && (!hasAnnuity || seq >= req.getYearCount())) break;
         }
 
         return results;
@@ -265,7 +267,13 @@ public class SimulatorService {
             boolean failed = window.size() < scenarioYears
                 || window.get(window.size() - 1).getPortfolioEnd() <= 0;
             s.setFailed(failed);
-            s.setYearsSurvived(window.size());
+            int ys = window.size();
+            if (failed) {
+                for (int i = 0; i < window.size(); i++) {
+                    if (window.get(i).getPortfolioEnd() <= 0) { ys = i + 1; break; }
+                }
+            }
+            s.setYearsSurvived(ys);
 
             double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
             s.setEndingBalance(endBalance);
@@ -583,7 +591,13 @@ public class SimulatorService {
             boolean failed = window.size() < scenarioYears
                 || window.get(window.size() - 1).getPortfolioEnd() <= 0;
             s.setFailed(failed);
-            s.setYearsSurvived(window.size());
+            int ys = window.size();
+            if (failed) {
+                for (int i = 0; i < window.size(); i++) {
+                    if (window.get(i).getPortfolioEnd() <= 0) { ys = i + 1; break; }
+                }
+            }
+            s.setYearsSurvived(ys);
 
             double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
             s.setEndingBalance(endBalance);

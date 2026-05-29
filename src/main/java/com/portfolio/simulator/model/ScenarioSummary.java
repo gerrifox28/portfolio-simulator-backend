@@ -18,6 +18,12 @@ public class ScenarioSummary {
     /** How many years the portfolio survived (max 40) */
     private int yearsSurvived;
 
+    /** Final year's portfolio withdrawal (annualWithdrawal from last YearResult) */
+    private double finalWithdrawal;
+
+    /** Final year's total income = portfolio withdrawal + annuity payment */
+    private double finalTotalIncome;
+
     public int getStartYear() { return startYear; }
     public void setStartYear(int startYear) { this.startYear = startYear; }
 
@@ -29,4 +35,10 @@ public class ScenarioSummary {
 
     public int getYearsSurvived() { return yearsSurvived; }
     public void setYearsSurvived(int yearsSurvived) { this.yearsSurvived = yearsSurvived; }
+
+    public double getFinalWithdrawal() { return finalWithdrawal; }
+    public void setFinalWithdrawal(double finalWithdrawal) { this.finalWithdrawal = finalWithdrawal; }
+
+    public double getFinalTotalIncome() { return finalTotalIncome; }
+    public void setFinalTotalIncome(double finalTotalIncome) { this.finalTotalIncome = finalTotalIncome; }
 }

@@ -269,6 +269,9 @@ public class SimulatorService {
 
             double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
             s.setEndingBalance(endBalance);
+            YearResult lastRow = window.get(window.size() - 1);
+            s.setFinalWithdrawal(lastRow.getAnnualWithdrawal());
+            s.setFinalTotalIncome(lastRow.getTotalIncome());
             scenarios.add(s);
 
             if (failed) {
@@ -584,6 +587,9 @@ public class SimulatorService {
 
             double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
             s.setEndingBalance(endBalance);
+            YearResult lastRow = window.get(window.size() - 1);
+            s.setFinalWithdrawal(lastRow.getAnnualWithdrawal());
+            s.setFinalTotalIncome(lastRow.getTotalIncome());
             scenarios.add(s);
 
             if (failed) {

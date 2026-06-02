@@ -5,6 +5,8 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Request for the all-scenarios endpoint.
@@ -110,4 +112,8 @@ public class AllScenariosRequest {
         double remaining = 1.0 - stockMarketAllocation - getDjUsReit();
         return Math.max(0.0, remaining - getOneMonth());
     }
+
+    private List<CashFlow> cashFlows = new ArrayList<>();
+    public List<CashFlow> getCashFlows() { return cashFlows; }
+    public void setCashFlows(List<CashFlow> cashFlows) { this.cashFlows = cashFlows != null ? cashFlows : new ArrayList<>(); }
 }

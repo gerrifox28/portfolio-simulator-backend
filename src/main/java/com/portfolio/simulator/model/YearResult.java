@@ -39,6 +39,12 @@ public class YearResult {
     /** Inflation adjustment % applied to annuity this year, subject to cap (0 for year 1 and non-annuity) */
     private double inflationAdjPct;
 
+    /** Portfolio end balance before manual cash flows are applied */
+    private double portfolioEndBeforeFlows;
+
+    /** Net manual cash flow applied this year (0 if none applicable or portfolio depleted) */
+    private double cashFlowApplied;
+
     // --- Getters & Setters ---
 
     public int getSequenceNumber() { return sequenceNumber; }
@@ -73,4 +79,10 @@ public class YearResult {
 
     public double getInflationAdjPct() { return inflationAdjPct; }
     public void setInflationAdjPct(double inflationAdjPct) { this.inflationAdjPct = inflationAdjPct; }
+
+    public double getPortfolioEndBeforeFlows() { return portfolioEndBeforeFlows; }
+    public void setPortfolioEndBeforeFlows(double portfolioEndBeforeFlows) { this.portfolioEndBeforeFlows = portfolioEndBeforeFlows; }
+
+    public double getCashFlowApplied() { return cashFlowApplied; }
+    public void setCashFlowApplied(double cashFlowApplied) { this.cashFlowApplied = cashFlowApplied; }
 }

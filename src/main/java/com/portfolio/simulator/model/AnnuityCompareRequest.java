@@ -3,6 +3,8 @@ package com.portfolio.simulator.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import java.util.ArrayList;
+import java.util.List;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
@@ -143,6 +145,11 @@ public class AnnuityCompareRequest {
         r.setMDjUsReit(mDjUsReit);
         r.setMOneMonth(mOneMonth);
         r.setMFiveYearUS(mFiveYearUS);
+        r.setCashFlows(cashFlows);
         return r;
     }
+
+    private List<CashFlow> cashFlows = new ArrayList<>();
+    public List<CashFlow> getCashFlows() { return cashFlows; }
+    public void setCashFlows(List<CashFlow> cashFlows) { this.cashFlows = cashFlows != null ? cashFlows : new ArrayList<>(); }
 }

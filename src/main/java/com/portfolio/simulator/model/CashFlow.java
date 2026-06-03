@@ -21,4 +21,9 @@ public class CashFlow {
 
     public Integer getYear() { return year; }
     public void setYear(Integer year) { this.year = year; }
+
+    /** "none" (default) | "full" | "half" — only meaningful when allYears === true */
+    private String inflationAdj = "none";
+    public String getInflationAdj() { return inflationAdj; }
+    public void setInflationAdj(String inflationAdj) { this.inflationAdj = inflationAdj != null ? inflationAdj : "none"; }
 }

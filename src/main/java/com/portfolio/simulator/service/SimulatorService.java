@@ -96,6 +96,12 @@ public class SimulatorService {
         double annuityIncome = req.getAnnuityInitialIncome();
         double targetIncome  = req.getInitialWithdrawal();
 
+        // Cumulative inflation multipliers for cash flow inflation adjustment.
+        // Both start at 1.0 (year 1 always uses the base amount).
+        // Updated at the end of each year using that year's actual CPI.
+        double cumulativeInflFull = 1.0;
+        double cumulativeInflHalf = 1.0;
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -210,12 +216,17 @@ public class SimulatorService {
             // Cash flows inserted between withdrawal and return calculation.
             // Depletion guard: skip flows if pre-flow balance is already <= 0.
             double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal();
-            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows());
+            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows(), cumulativeInflFull, cumulativeInflHalf);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
             r.setPortfolioEnd(balanceBeforeReturn + gain);
+
+            // Advance inflation multipliers for next year using this year's actual CPI
+            double cpi = row[0];
+            cumulativeInflFull *= (1.0 + cpi);
+            cumulativeInflHalf *= (1.0 + cpi / 2.0);
 
             results.add(r);
             if (r.getPortfolioEnd() <= 0) break;
@@ -318,15 +329,28 @@ public class SimulatorService {
 
     /**
      * Returns the net manual cash flow applicable to sequence year {@code seq}.
-     * Depletion guard: if the pre-flow balance (after withdrawal, before cash flows)
-     * is $0 or below the nest egg is exhausted — skip all flows.
+     * Depletion guard: if the pre-flow balance is $0 or below, skip all flows.
+     *
+     * @param cumulativeInflFull  running product of (1 + CPI) for each prior year — 1.0 for year 1
+     * @param cumulativeInflHalf  running product of (1 + CPI/2) for each prior year — 1.0 for year 1
      */
-    private double computeCashFlowNet(int seq, double preFlowBalance, List<CashFlow> flows) {
+    private double computeCashFlowNet(int seq, double preFlowBalance, List<CashFlow> flows,
+                                       double cumulativeInflFull, double cumulativeInflHalf) {
         if (preFlowBalance <= 0 || flows == null || flows.isEmpty()) return 0.0;
         double net = 0.0;
         for (CashFlow cf : flows) {
             if (cf.isAllYears() || (cf.getYear() != null && cf.getYear() == seq)) {
-                net += cf.getAmount();
+                double amount = cf.getAmount();
+                // Inflation adjustment only applies to recurring (allYears) entries
+                if (cf.isAllYears()) {
+                    String adj = cf.getInflationAdj();
+                    if ("full".equals(adj)) {
+                        amount = cf.getAmount() * cumulativeInflFull;
+                    } else if ("half".equals(adj)) {
+                        amount = cf.getAmount() * cumulativeInflHalf;
+                    }
+                }
+                net += Double.isNaN(amount) ? 0.0 : amount;
             }
         }
         return net;
@@ -664,6 +688,9 @@ public class SimulatorService {
         double annuityIncome = initialAnnuityIncome;
         double targetIncome  = req.getInitialWithdrawal(); // full inflation-adjusted income need
 
+        double cumulativeInflFull = 1.0;
+        double cumulativeInflHalf = 1.0;
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -726,13 +753,17 @@ public class SimulatorService {
             r.setPortfolioReturnRate(rate);
 
             double preFlowBalance = beginning - portfolioWithdrawal;
-            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows());
+            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows(), cumulativeInflFull, cumulativeInflHalf);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
             r.setTotalIncome(portfolioWithdrawal + annuityIncome);
             r.setPortfolioEnd(balanceBeforeReturn + gain);
+
+            double cpi = row[0];
+            cumulativeInflFull *= (1.0 + cpi);
+            cumulativeInflHalf *= (1.0 + cpi / 2.0);
 
             results.add(r);
 

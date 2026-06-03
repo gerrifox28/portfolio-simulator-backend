@@ -1,6 +1,7 @@
 package com.portfolio.simulator.service;
 
 import com.portfolio.simulator.model.AllScenariosRequest;
+import com.portfolio.simulator.model.CashFlow;
 import com.portfolio.simulator.model.AllScenariosResponse;
 import com.portfolio.simulator.model.AnnuityCompareRequest;
 import com.portfolio.simulator.model.AnnuityCompareResponse;

@@ -205,11 +205,16 @@ public class SimulatorService {
 
             double rate = computeBlendedReturn(year, req);
             r.setPortfolioReturnRate(rate);
-            double gain = (r.getPortfolioBeginning() > 0)
-                ? rate * (r.getPortfolioBeginning() - r.getAnnualWithdrawal())
-                : 0.0;
+
+            // Cash flows inserted between withdrawal and return calculation.
+            // Depletion guard: skip flows if pre-flow balance is already <= 0.
+            double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal();
+            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows());
+            r.setCashFlowApplied(cashFlow);
+            double balanceBeforeReturn = preFlowBalance + cashFlow;
+            double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
-            r.setPortfolioEnd(r.getPortfolioBeginning() - r.getAnnualWithdrawal() + gain);
+            r.setPortfolioEnd(balanceBeforeReturn + gain);
 
             results.add(r);
             if (r.getPortfolioEnd() <= 0) break;
@@ -234,6 +239,7 @@ public class SimulatorService {
         base.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
         base.setWithdrawalMode(req.getWithdrawalMode());
         base.setYearCount(scenarioYears);
+        base.setCashFlows(req.getCashFlows());
         applyAllocations(base, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -304,6 +310,26 @@ public class SimulatorService {
     // -------------------------------------------------------------------------
     // ALLOCATION HELPERS — resolve manual or auto allocations onto a SimulationRequest
     // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // CASH FLOW HELPER
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns the net manual cash flow applicable to sequence year {@code seq}.
+     * Depletion guard: if the pre-flow balance (after withdrawal, before cash flows)
+     * is $0 or below the nest egg is exhausted — skip all flows.
+     */
+    private double computeCashFlowNet(int seq, double preFlowBalance, List<CashFlow> flows) {
+        if (preFlowBalance <= 0 || flows == null || flows.isEmpty()) return 0.0;
+        double net = 0.0;
+        for (CashFlow cf : flows) {
+            if (cf.isAllYears() || (cf.getYear() != null && cf.getYear() == seq)) {
+                net += cf.getAmount();
+            }
+        }
+        return net;
+    }
 
     /** Applies manual or auto-derived allocations from AllScenariosRequest to target. */
     private void applyAllocations(SimulationRequest target, AllScenariosRequest src) {
@@ -553,6 +579,7 @@ public class SimulatorService {
         portfolioReq.setWithdrawalMode(req.getWithdrawalMode());
         portfolioReq.setAnnuityCap(req.getAnnuityCap());
         portfolioReq.setYearCount(scenarioYears);
+        portfolioReq.setCashFlows(req.getCashFlows());
         applyAllocations(portfolioReq, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -697,12 +724,14 @@ public class SimulatorService {
             double rate = computeBlendedReturn(year, req);
             r.setPortfolioReturnRate(rate);
 
-            double gain = (beginning > 0)
-                ? rate * (beginning - portfolioWithdrawal)
-                : 0.0;
+            double preFlowBalance = beginning - portfolioWithdrawal;
+            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows());
+            r.setCashFlowApplied(cashFlow);
+            double balanceBeforeReturn = preFlowBalance + cashFlow;
+            double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
             r.setTotalIncome(portfolioWithdrawal + annuityIncome);
-            r.setPortfolioEnd(beginning - portfolioWithdrawal + gain);
+            r.setPortfolioEnd(balanceBeforeReturn + gain);
 
             results.add(r);
 

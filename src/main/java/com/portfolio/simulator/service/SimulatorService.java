@@ -99,6 +99,11 @@ public class SimulatorService {
         // Per-entry inflation multipliers — each entry compounds from its own start year.
         Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
 
+        // Tracks the inflation-compounded withdrawal from year 1 forward.
+        // Used so that when income starts after year 1, the first withdrawal
+        // reflects purchasing-power-adjusted dollars, not the flat nominal amount.
+        double runningWithdrawal = req.getInitialWithdrawal();
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -210,24 +215,29 @@ public class SimulatorService {
                 }
             }
 
+            // Advance runningWithdrawal with actual CPI every year (including pre-income).
+            // This ensures the first withdrawal at incomeStartYear is purchasing-power-adjusted.
+            if (seq > 1) {
+                runningWithdrawal *= (1.0 + results.get(seq - 2).getInflation());
+            }
+
             // ── Income Start Year override ───────────────────────────────────────
-            // Before income begins: zero withdrawal and income.
-            // At income start (when not year 1): restart from base withdrawal.
             int incomeStart = req.getIncomeStartYear();
             if (seq < incomeStart) {
                 r.setAnnualWithdrawal(0.0);
                 r.setTotalIncome(0.0);
                 if (hasAnnuity) { r.setAnnuityPayment(0.0); r.setInflationAdjPct(0.0); }
             } else if (seq == incomeStart && seq > 1) {
+                // Use inflation-compounded amount, not the flat nominal base.
                 if (hasAnnuity) {
                     r.setAnnuityPayment(annuityIncome);
                     r.setInflationAdjPct(0.0);
-                    double pw = Math.min(Math.max(0.0, req.getInitialWithdrawal() - annuityIncome),
+                    double pw = Math.min(Math.max(0.0, runningWithdrawal - annuityIncome),
                                          r.getPortfolioBeginning());
                     r.setAnnualWithdrawal(pw);
                     r.setTotalIncome(pw + annuityIncome);
                 } else {
-                    double w = Math.min(req.getInitialWithdrawal(), r.getPortfolioBeginning());
+                    double w = Math.min(runningWithdrawal, r.getPortfolioBeginning());
                     r.setAnnualWithdrawal(w);
                     r.setTotalIncome(w);
                 }
@@ -735,6 +745,7 @@ public class SimulatorService {
 
         double annuityIncome = initialAnnuityIncome;
         double targetIncome  = req.getInitialWithdrawal(); // full inflation-adjusted income need
+        double runningTargetIncome = targetIncome;
 
         Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
 
@@ -799,13 +810,17 @@ public class SimulatorService {
             r.setPortfolioBeginning(beginning);
             r.setAnnualWithdrawal(portfolioWithdrawal);
 
+            if (seq > 1) {
+                runningTargetIncome *= (1.0 + results.get(seq - 2).getInflation());
+            }
+
             // Income start year override
             int incomeStartW = req.getIncomeStartYear();
             if (seq < incomeStartW) {
                 r.setAnnualWithdrawal(0.0);
                 r.setTotalIncome(0.0);
             } else if (seq == incomeStartW && seq > 1) {
-                double baseW = Math.min(Math.max(0.0, targetIncome - annuityIncome), beginning);
+                double baseW = Math.min(Math.max(0.0, runningTargetIncome - annuityIncome), beginning);
                 r.setAnnualWithdrawal(baseW);
             }
 

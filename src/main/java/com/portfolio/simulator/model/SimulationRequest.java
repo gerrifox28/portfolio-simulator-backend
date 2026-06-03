@@ -1,8 +1,6 @@
 package com.portfolio.simulator.model;
 
 import jakarta.validation.constraints.*;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Request body for POST /api/simulate.
@@ -122,10 +120,6 @@ public class SimulationRequest {
 
     public int getYearCount() { return yearCount; }
     public void setYearCount(int yearCount) { this.yearCount = yearCount; }
-
-    private List<CashFlow> cashFlows = new ArrayList<>();
-    public List<CashFlow> getCashFlows() { return cashFlows; }
-    public void setCashFlows(List<CashFlow> cashFlows) { this.cashFlows = cashFlows != null ? cashFlows : new ArrayList<>(); }
 
     /** Returns the sum of all allocation weights. Should equal 1.0. */
     public double allocationSum() {

@@ -211,7 +211,6 @@ public class SimulatorService {
             r.setPortfolioReturnDollars(gain);
             r.setPortfolioEnd(r.getPortfolioBeginning() - r.getAnnualWithdrawal() + gain);
 
-            applyCashFlows(r, seq, req.getCashFlows());
             results.add(r);
             if (r.getPortfolioEnd() <= 0) break;
         }
@@ -235,7 +234,6 @@ public class SimulatorService {
         base.setExpensesAndMgmtFee(req.getExpensesAndMgmtFee());
         base.setWithdrawalMode(req.getWithdrawalMode());
         base.setYearCount(scenarioYears);
-        base.setCashFlows(req.getCashFlows());
         applyAllocations(base, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -306,36 +304,6 @@ public class SimulatorService {
     // -------------------------------------------------------------------------
     // ALLOCATION HELPERS — resolve manual or auto allocations onto a SimulationRequest
     // -------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------
-    // CASH FLOW HELPER
-    // -------------------------------------------------------------------------
-
-    /**
-     * Applies manual cash flows to a YearResult after the simulation has
-     * calculated portfolioEnd for that year.  Depletion guard: if portfolioEnd
-     * is already <= 0 before flows, the nest egg is exhausted — no flow is
-     * applied and the balance is locked at 0.
-     */
-    private void applyCashFlows(YearResult r, int seq, List<CashFlow> flows) {
-        double preFlow = r.getPortfolioEnd();
-        r.setPortfolioEndBeforeFlows(preFlow);
-
-        if (preFlow <= 0 || flows == null || flows.isEmpty()) {
-            r.setCashFlowApplied(0.0);
-            r.setPortfolioEnd(Math.max(0, preFlow));
-            return;
-        }
-
-        double net = 0.0;
-        for (CashFlow cf : flows) {
-            if (cf.isAllYears() || (cf.getYear() != null && cf.getYear() == seq)) {
-                net += cf.getAmount();
-            }
-        }
-        r.setCashFlowApplied(net);
-        r.setPortfolioEnd(Math.max(0, preFlow + net));
-    }
 
     /** Applies manual or auto-derived allocations from AllScenariosRequest to target. */
     private void applyAllocations(SimulationRequest target, AllScenariosRequest src) {
@@ -585,7 +553,6 @@ public class SimulatorService {
         portfolioReq.setWithdrawalMode(req.getWithdrawalMode());
         portfolioReq.setAnnuityCap(req.getAnnuityCap());
         portfolioReq.setYearCount(scenarioYears);
-        portfolioReq.setCashFlows(req.getCashFlows());
         applyAllocations(portfolioReq, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -616,13 +583,7 @@ public class SimulatorService {
             boolean failed = window.size() < scenarioYears
                 || window.get(window.size() - 1).getPortfolioEnd() <= 0;
             s.setFailed(failed);
-            int ys = window.size();
-            if (failed) {
-                for (int i = 0; i < window.size(); i++) {
-                    if (window.get(i).getPortfolioEnd() <= 0) { ys = i + 1; break; }
-                }
-            }
-            s.setYearsSurvived(ys);
+            s.setYearsSurvived(window.size());
 
             double endBalance = failed ? 0 : window.get(window.size() - 1).getPortfolioEnd();
             s.setEndingBalance(endBalance);
@@ -633,7 +594,7 @@ public class SimulatorService {
 
             if (failed) {
                 failureCount++;
-                earliestFailureYears = Math.min(earliestFailureYears, ys);
+                earliestFailureYears = Math.min(earliestFailureYears, window.size());
                 if (endBalance < worstBalance) { worstBalance = endBalance; worstStartYear = startYear; }
             } else {
                 totalEndingBalance += endBalance;
@@ -743,7 +704,6 @@ public class SimulatorService {
             r.setTotalIncome(portfolioWithdrawal + annuityIncome);
             r.setPortfolioEnd(beginning - portfolioWithdrawal + gain);
 
-            applyCashFlows(r, seq, req.getCashFlows());
             results.add(r);
 
             if (r.getPortfolioEnd() <= 0) break;

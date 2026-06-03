@@ -96,11 +96,8 @@ public class SimulatorService {
         double annuityIncome = req.getAnnuityInitialIncome();
         double targetIncome  = req.getInitialWithdrawal();
 
-        // Cumulative inflation multipliers for cash flow inflation adjustment.
-        // Both start at 1.0 (year 1 always uses the base amount).
-        // Updated at the end of each year using that year's actual CPI.
-        double cumulativeInflFull = 1.0;
-        double cumulativeInflHalf = 1.0;
+        // Per-entry inflation multipliers — each entry compounds from its own start year.
+        Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
 
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
@@ -216,17 +213,14 @@ public class SimulatorService {
             // Cash flows inserted between withdrawal and return calculation.
             // Depletion guard: skip flows if pre-flow balance is already <= 0.
             double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal();
-            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows(), cumulativeInflFull, cumulativeInflHalf);
+            double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
             r.setPortfolioEnd(balanceBeforeReturn + gain);
 
-            // Advance inflation multipliers for next year using this year's actual CPI
-            double cpi = row[0];
-            cumulativeInflFull *= (1.0 + cpi);
-            cumulativeInflHalf *= (1.0 + cpi / 2.0);
+            advanceFlowMultipliers(seq, req.getCashFlows(), flowMults, row[0]);
 
             results.add(r);
             if (r.getPortfolioEnd() <= 0) break;
@@ -324,36 +318,62 @@ public class SimulatorService {
     // -------------------------------------------------------------------------
 
     // -------------------------------------------------------------------------
-    // CASH FLOW HELPER
+    // CASH FLOW HELPERS
     // -------------------------------------------------------------------------
 
+    /** Returns true if this flow applies to sequence year {@code seq}. */
+    private boolean flowApplies(CashFlow cf, int seq) {
+        if (cf.isAllYears()) return true;
+        return cf.getYearStart() != null && cf.getYearEnd() != null
+            && seq >= cf.getYearStart() && seq <= cf.getYearEnd();
+    }
+
     /**
-     * Returns the net manual cash flow applicable to sequence year {@code seq}.
-     * Depletion guard: if the pre-flow balance is $0 or below, skip all flows.
-     *
-     * @param cumulativeInflFull  running product of (1 + CPI) for each prior year — 1.0 for year 1
-     * @param cumulativeInflHalf  running product of (1 + CPI/2) for each prior year — 1.0 for year 1
+     * Initialises per-entry inflation multipliers to [1.0, 1.0] (full, half).
+     * Each entry compounds from its own start year, so all begin at 1.0.
      */
-    private double computeCashFlowNet(int seq, double preFlowBalance, List<CashFlow> flows,
-                                       double cumulativeInflFull, double cumulativeInflHalf) {
+    private Map<String, double[]> initFlowMultipliers(List<CashFlow> flows) {
+        Map<String, double[]> map = new HashMap<>();
+        if (flows != null) {
+            for (CashFlow cf : flows) map.put(cf.getId(), new double[]{1.0, 1.0});
+        }
+        return map;
+    }
+
+    /**
+     * Returns the net cash flow for {@code seq}.
+     * Depletion guard: returns 0 if preFlowBalance <= 0.
+     * Uses per-entry multipliers so range entries compound from their own yearStart.
+     */
+    private double netCashFlow(int seq, double preFlowBalance, List<CashFlow> flows,
+                                Map<String, double[]> mults) {
         if (preFlowBalance <= 0 || flows == null || flows.isEmpty()) return 0.0;
         double net = 0.0;
         for (CashFlow cf : flows) {
-            if (cf.isAllYears() || (cf.getYear() != null && cf.getYear() == seq)) {
-                double amount = cf.getAmount();
-                // Inflation adjustment only applies to recurring (allYears) entries
-                if (cf.isAllYears()) {
-                    String adj = cf.getInflationAdj();
-                    if ("full".equals(adj)) {
-                        amount = cf.getAmount() * cumulativeInflFull;
-                    } else if ("half".equals(adj)) {
-                        amount = cf.getAmount() * cumulativeInflHalf;
-                    }
-                }
-                net += Double.isNaN(amount) ? 0.0 : amount;
-            }
+            if (!flowApplies(cf, seq)) continue;
+            double amount = cf.getAmount();
+            double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0});
+            String adj = cf.getInflationAdj();
+            if ("full".equals(adj)) amount *= m[0];
+            else if ("half".equals(adj)) amount *= m[1];
+            net += Double.isNaN(amount) ? 0.0 : amount;
         }
         return net;
+    }
+
+    /**
+     * Advances per-entry multipliers for all entries that are active this year.
+     * Called after computing the cash flow for {@code seq}, before moving to seq+1.
+     */
+    private void advanceFlowMultipliers(int seq, List<CashFlow> flows,
+                                         Map<String, double[]> mults, double cpi) {
+        if (flows == null) return;
+        for (CashFlow cf : flows) {
+            if (!flowApplies(cf, seq)) continue;
+            double[] m = mults.computeIfAbsent(cf.getId(), k -> new double[]{1.0, 1.0});
+            m[0] *= (1.0 + cpi);
+            m[1] *= (1.0 + cpi / 2.0);
+        }
     }
 
     /** Applies manual or auto-derived allocations from AllScenariosRequest to target. */
@@ -688,8 +708,7 @@ public class SimulatorService {
         double annuityIncome = initialAnnuityIncome;
         double targetIncome  = req.getInitialWithdrawal(); // full inflation-adjusted income need
 
-        double cumulativeInflFull = 1.0;
-        double cumulativeInflHalf = 1.0;
+        Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
 
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
@@ -753,7 +772,7 @@ public class SimulatorService {
             r.setPortfolioReturnRate(rate);
 
             double preFlowBalance = beginning - portfolioWithdrawal;
-            double cashFlow = computeCashFlowNet(seq, preFlowBalance, req.getCashFlows(), cumulativeInflFull, cumulativeInflHalf);
+            double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
@@ -761,9 +780,7 @@ public class SimulatorService {
             r.setTotalIncome(portfolioWithdrawal + annuityIncome);
             r.setPortfolioEnd(balanceBeforeReturn + gain);
 
-            double cpi = row[0];
-            cumulativeInflFull *= (1.0 + cpi);
-            cumulativeInflHalf *= (1.0 + cpi / 2.0);
+            advanceFlowMultipliers(seq, req.getCashFlows(), flowMults, row[0]);
 
             results.add(r);
 

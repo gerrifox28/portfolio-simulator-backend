@@ -5,8 +5,6 @@ public class CashFlow {
     private String description;
     private double amount;
     private boolean allYears;
-    private Integer year; // 1-indexed simulation sequence year; null when allYears === true
-
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
 
@@ -19,8 +17,15 @@ public class CashFlow {
     public boolean isAllYears() { return allYears; }
     public void setAllYears(boolean allYears) { this.allYears = allYears; }
 
-    public Integer getYear() { return year; }
-    public void setYear(Integer year) { this.year = year; }
+    /** First year of the range (1-indexed); null when allYears === true */
+    private Integer yearStart;
+    public Integer getYearStart() { return yearStart; }
+    public void setYearStart(Integer yearStart) { this.yearStart = yearStart; }
+
+    /** Last year of the range; equals yearStart for single-year entries; null when allYears === true */
+    private Integer yearEnd;
+    public Integer getYearEnd() { return yearEnd; }
+    public void setYearEnd(Integer yearEnd) { this.yearEnd = yearEnd; }
 
     /** "none" (default) | "full" | "half" — only meaningful when allYears === true */
     private String inflationAdj = "none";

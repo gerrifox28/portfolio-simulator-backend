@@ -130,9 +130,12 @@ public class SimulatorService {
                 if (hasAnnuity) {
                     double cpi = prev.getInflation();
 
-                    // Annuity engine — independent of withdrawal
-                    double adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
-                    annuityIncome = annuityIncome * (1.0 + adjPct);
+                    // Annuity engine — only compound COLA when income has started
+                    double adjPct = 0.0;
+                    if (seq >= req.getIncomeStartYear()) {
+                        adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
+                        annuityIncome = annuityIncome * (1.0 + adjPct);
+                    }
 
                     // Withdrawal engine — independent of annuity
                     double pw;
@@ -207,6 +210,29 @@ public class SimulatorService {
                 }
             }
 
+            // ── Income Start Year override ───────────────────────────────────────
+            // Before income begins: zero withdrawal and income.
+            // At income start (when not year 1): restart from base withdrawal.
+            int incomeStart = req.getIncomeStartYear();
+            if (seq < incomeStart) {
+                r.setAnnualWithdrawal(0.0);
+                r.setTotalIncome(0.0);
+                if (hasAnnuity) { r.setAnnuityPayment(0.0); r.setInflationAdjPct(0.0); }
+            } else if (seq == incomeStart && seq > 1) {
+                if (hasAnnuity) {
+                    r.setAnnuityPayment(annuityIncome);
+                    r.setInflationAdjPct(0.0);
+                    double pw = Math.min(Math.max(0.0, req.getInitialWithdrawal() - annuityIncome),
+                                         r.getPortfolioBeginning());
+                    r.setAnnualWithdrawal(pw);
+                    r.setTotalIncome(pw + annuityIncome);
+                } else {
+                    double w = Math.min(req.getInitialWithdrawal(), r.getPortfolioBeginning());
+                    r.setAnnualWithdrawal(w);
+                    r.setTotalIncome(w);
+                }
+            }
+
             double rate = computeBlendedReturn(year, req);
             r.setPortfolioReturnRate(rate);
 
@@ -246,6 +272,7 @@ public class SimulatorService {
         base.setWithdrawalMode(req.getWithdrawalMode());
         base.setYearCount(scenarioYears);
         base.setCashFlows(req.getCashFlows());
+        base.setIncomeStartYear(req.getIncomeStartYear());
         applyAllocations(base, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -625,6 +652,7 @@ public class SimulatorService {
         portfolioReq.setAnnuityCap(req.getAnnuityCap());
         portfolioReq.setYearCount(scenarioYears);
         portfolioReq.setCashFlows(req.getCashFlows());
+        portfolioReq.setIncomeStartYear(req.getIncomeStartYear());
         applyAllocations(portfolioReq, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -735,9 +763,12 @@ public class SimulatorService {
 
                 double cpi = prev.getInflation();
 
-                // Annuity engine — independent of withdrawal; never decreases
-                double adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
-                annuityIncome = annuityIncome * (1.0 + adjPct);
+                // Annuity engine — only compound COLA when income has started
+                double adjPct = 0.0;
+                if (seq >= req.getIncomeStartYear()) {
+                    adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
+                    annuityIncome = annuityIncome * (1.0 + adjPct);
+                }
 
                 // Withdrawal engine — independent of annuity
                 if ("tpa".equals(req.getWithdrawalMode())) {
@@ -768,16 +799,26 @@ public class SimulatorService {
             r.setPortfolioBeginning(beginning);
             r.setAnnualWithdrawal(portfolioWithdrawal);
 
+            // Income start year override
+            int incomeStartW = req.getIncomeStartYear();
+            if (seq < incomeStartW) {
+                r.setAnnualWithdrawal(0.0);
+                r.setTotalIncome(0.0);
+            } else if (seq == incomeStartW && seq > 1) {
+                double baseW = Math.min(Math.max(0.0, targetIncome - annuityIncome), beginning);
+                r.setAnnualWithdrawal(baseW);
+            }
+
             double rate = computeBlendedReturn(year, req);
             r.setPortfolioReturnRate(rate);
 
-            double preFlowBalance = beginning - portfolioWithdrawal;
+            double preFlowBalance = beginning - r.getAnnualWithdrawal();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
-            r.setTotalIncome(portfolioWithdrawal + annuityIncome);
+            r.setTotalIncome(r.getAnnualWithdrawal() + (seq >= incomeStartW ? annuityIncome : 0.0));
             r.setPortfolioEnd(balanceBeforeReturn + gain);
 
             advanceFlowMultipliers(seq, req.getCashFlows(), flowMults, row[0]);

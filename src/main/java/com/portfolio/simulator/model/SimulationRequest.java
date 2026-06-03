@@ -127,6 +127,11 @@ public class SimulationRequest {
     public List<CashFlow> getCashFlows() { return cashFlows; }
     public void setCashFlows(List<CashFlow> cashFlows) { this.cashFlows = cashFlows != null ? cashFlows : new ArrayList<>(); }
 
+    /** Simulation sequence year when income withdrawals begin (1-indexed, default 1). */
+    private int incomeStartYear = 1;
+    public int getIncomeStartYear() { return incomeStartYear; }
+    public void setIncomeStartYear(int incomeStartYear) { this.incomeStartYear = Math.max(1, incomeStartYear); }
+
     /** Returns the sum of all allocation weights. Should equal 1.0. */
     public double allocationSum() {
         return sp500 + crsp1_10 + oneMonth + fiveYearUS + crsp6_10

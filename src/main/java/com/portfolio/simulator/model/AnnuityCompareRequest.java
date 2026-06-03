@@ -146,10 +146,15 @@ public class AnnuityCompareRequest {
         r.setMOneMonth(mOneMonth);
         r.setMFiveYearUS(mFiveYearUS);
         r.setCashFlows(cashFlows);
+        r.setIncomeStartYear(incomeStartYear);
         return r;
     }
 
     private List<CashFlow> cashFlows = new ArrayList<>();
     public List<CashFlow> getCashFlows() { return cashFlows; }
     public void setCashFlows(List<CashFlow> cashFlows) { this.cashFlows = cashFlows != null ? cashFlows : new ArrayList<>(); }
+
+    private int incomeStartYear = 1;
+    public int getIncomeStartYear() { return incomeStartYear; }
+    public void setIncomeStartYear(int incomeStartYear) { this.incomeStartYear = Math.max(1, incomeStartYear); }
 }

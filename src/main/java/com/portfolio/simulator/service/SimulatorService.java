@@ -216,8 +216,8 @@ public class SimulatorService {
             }
 
             // Advance runningWithdrawal with actual CPI every year (including pre-income).
-            // This ensures the first withdrawal at incomeStartYear is purchasing-power-adjusted.
-            if (seq > 1) {
+            // Fixed mode: no compounding — the flat entered amount is used regardless of incomeStartYear.
+            if (seq > 1 && !"fixed".equals(req.getWithdrawalMode())) {
                 runningWithdrawal *= (1.0 + results.get(seq - 2).getInflation());
             }
 
@@ -810,7 +810,7 @@ public class SimulatorService {
             r.setPortfolioBeginning(beginning);
             r.setAnnualWithdrawal(portfolioWithdrawal);
 
-            if (seq > 1) {
+            if (seq > 1 && !"fixed".equals(req.getWithdrawalMode())) {
                 runningTargetIncome *= (1.0 + results.get(seq - 2).getInflation());
             }
 

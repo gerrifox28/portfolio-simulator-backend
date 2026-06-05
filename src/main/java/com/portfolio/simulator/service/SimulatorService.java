@@ -153,7 +153,7 @@ public class SimulatorService {
                         } else if (cpi < 0) {
                             pw = prevWithdrawal * (1.0 + cpi);
                         } else {
-                            double ratio = prevWithdrawal * (1.0 + cpi) / r.getPortfolioBeginning();
+                            double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / r.getPortfolioBeginning();
                             double threshold = TpaTable.lookup(seq, req.getYearCount());
                             pw = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
                         }
@@ -190,7 +190,7 @@ public class SimulatorService {
                             inflationAdjWithdrawal = prevWithdrawal * (1.0 + prevInflation);
                         } else {
                             // Positive CPI — apply only if TPA ratio allows it
-                            double ratio = prevWithdrawal * (1.0 + prevInflation) / r.getPortfolioBeginning();
+                            double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + prevInflation) / r.getPortfolioBeginning();
                             double threshold = TpaTable.lookup(seq, req.getYearCount());
                             if (ratio <= threshold) {
                                 inflationAdjWithdrawal = prevWithdrawal * (1.0 + prevInflation);
@@ -791,7 +791,7 @@ public class SimulatorService {
                     } else if (cpi < 0) {
                         portfolioWithdrawal = prevWithdrawal * (1.0 + cpi);
                     } else {
-                        double ratio = prevWithdrawal * (1.0 + cpi) / beginning;
+                        double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / beginning;
                         double threshold = TpaTable.lookup(seq, req.getYearCount());
                         portfolioWithdrawal = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
                     }

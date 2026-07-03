@@ -29,6 +29,12 @@ public class AllScenariosResponse {
     /** Average remaining balance after 40 years (exhausted = 0) */
     private double averageEndingBalance;
 
+    /** Average annual portfolio withdrawal across all scenarios × all years (failed years = $0) */
+    private double averageAnnualWithdrawal;
+
+    /** Average annual total income (withdrawal + annuity) across all scenarios × all years (failed years = $0) */
+    private double averageAnnualTotalIncome;
+
     /** The starting year that produced the highest final balance */
     private int bestStartYear;
 
@@ -60,6 +66,12 @@ public class AllScenariosResponse {
 
     public double getAverageEndingBalance() { return averageEndingBalance; }
     public void setAverageEndingBalance(double averageFinalBalance) { this.averageEndingBalance = averageFinalBalance; }
+
+    public double getAverageAnnualWithdrawal() { return averageAnnualWithdrawal; }
+    public void setAverageAnnualWithdrawal(double averageAnnualWithdrawal) { this.averageAnnualWithdrawal = averageAnnualWithdrawal; }
+
+    public double getAverageAnnualTotalIncome() { return averageAnnualTotalIncome; }
+    public void setAverageAnnualTotalIncome(double averageAnnualTotalIncome) { this.averageAnnualTotalIncome = averageAnnualTotalIncome; }
 
     public int getBestStartYear() { return bestStartYear; }
     public void setBestStartYear(int bestStartYear) { this.bestStartYear = bestStartYear; }

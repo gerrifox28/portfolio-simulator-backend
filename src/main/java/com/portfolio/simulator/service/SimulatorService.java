@@ -298,6 +298,8 @@ public class SimulatorService {
         int bestStartYear = FIRST_START_YEAR;
         double worstBalance = Double.MAX_VALUE;
         double bestBalance = Double.MIN_VALUE;
+        double totalWithdrawalSum = 0;
+        double totalTotalIncomeSum = 0;
 
         for (int startYear = FIRST_START_YEAR; startYear <= lastStartYear; startYear++) {
             base.setStartYear(startYear);
@@ -323,6 +325,11 @@ public class SimulatorService {
             s.setFinalTotalIncome(lastRow.getTotalIncome());
             scenarios.add(s);
 
+            for (YearResult yr : window) {
+                totalWithdrawalSum += yr.getAnnualWithdrawal();
+                totalTotalIncomeSum += yr.getTotalIncome();
+            }
+
             if (failed) {
                 failureCount++;
                 earliestFailureYears = Math.min(earliestFailureYears, window.size());
@@ -336,6 +343,7 @@ public class SimulatorService {
             }
         }
 
+        int totalYearSlots = scenarios.size() * scenarioYears;
         AllScenariosResponse resp = new AllScenariosResponse();
         resp.setScenarios(scenarios);
         resp.setTotalScenarios(scenarios.size());
@@ -344,6 +352,8 @@ public class SimulatorService {
         resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
         resp.setHighestEndingBalance(highestEndingBalance);
         resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
+        resp.setAverageAnnualWithdrawal(totalYearSlots > 0 ? totalWithdrawalSum / totalYearSlots : 0);
+        resp.setAverageAnnualTotalIncome(totalYearSlots > 0 ? totalTotalIncomeSum / totalYearSlots : 0);
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
         resp.setYearCount(scenarioYears);
@@ -678,6 +688,8 @@ public class SimulatorService {
         int bestStartYear = FIRST_START_YEAR;
         double worstBalance = Double.MAX_VALUE;
         double bestBalance = Double.MIN_VALUE;
+        double totalWithdrawalSum = 0;
+        double totalTotalIncomeSum = 0;
 
         for (int startYear = FIRST_START_YEAR; startYear <= lastStartYear; startYear++) {
             portfolioReq.setStartYear(startYear);
@@ -702,6 +714,11 @@ public class SimulatorService {
             s.setFinalTotalIncome(lastRow.getTotalIncome());
             scenarios.add(s);
 
+            for (YearResult yr : window) {
+                totalWithdrawalSum += yr.getAnnualWithdrawal();
+                totalTotalIncomeSum += yr.getTotalIncome();
+            }
+
             if (failed) {
                 failureCount++;
                 earliestFailureYears = Math.min(earliestFailureYears, window.size());
@@ -715,6 +732,7 @@ public class SimulatorService {
             }
         }
 
+        int totalYearSlots = scenarios.size() * scenarioYears;
         AllScenariosResponse resp = new AllScenariosResponse();
         resp.setScenarios(scenarios);
         resp.setTotalScenarios(scenarios.size());
@@ -723,6 +741,8 @@ public class SimulatorService {
         resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
         resp.setHighestEndingBalance(highestEndingBalance);
         resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
+        resp.setAverageAnnualWithdrawal(totalYearSlots > 0 ? totalWithdrawalSum / totalYearSlots : 0);
+        resp.setAverageAnnualTotalIncome(totalYearSlots > 0 ? totalTotalIncomeSum / totalYearSlots : 0);
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
         resp.setYearCount(scenarioYears);

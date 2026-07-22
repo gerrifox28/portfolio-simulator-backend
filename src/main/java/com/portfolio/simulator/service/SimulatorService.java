@@ -251,6 +251,9 @@ public class SimulatorService {
             double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
+            double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
+            r.setIncomeApplied(incomeFlow);
+            r.setTotalIncome(r.getTotalIncome() + incomeFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
@@ -388,7 +391,8 @@ public class SimulatorService {
     }
 
     /**
-     * Returns the net cash flow for {@code seq}.
+     * Returns the net cash flow for {@code seq}, considering only entries typed "cashflow"
+     * (the default / existing behavior — these affect the portfolio balance).
      * Depletion guard: returns 0 if preFlowBalance <= 0.
      * Uses per-entry multipliers so range entries compound from their own yearStart.
      */
@@ -397,6 +401,28 @@ public class SimulatorService {
         if (preFlowBalance <= 0 || flows == null || flows.isEmpty()) return 0.0;
         double net = 0.0;
         for (CashFlow cf : flows) {
+            if ("income".equals(cf.getType())) continue;
+            if (!flowApplies(cf, seq)) continue;
+            double amount = cf.getAmount();
+            double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0});
+            String adj = cf.getInflationAdj();
+            if ("full".equals(adj)) amount *= m[0];
+            else if ("half".equals(adj)) amount *= m[1];
+            net += Double.isNaN(amount) ? 0.0 : amount;
+        }
+        return net;
+    }
+
+    /**
+     * Returns the net "Income"-typed manual cash flow for {@code seq}.
+     * Purely informational — feeds the Income / Total Income columns only and
+     * is never added to the portfolio balance, so there is no depletion guard.
+     */
+    private double netIncomeFlow(int seq, List<CashFlow> flows, Map<String, double[]> mults) {
+        if (flows == null || flows.isEmpty()) return 0.0;
+        double net = 0.0;
+        for (CashFlow cf : flows) {
+            if (!"income".equals(cf.getType())) continue;
             if (!flowApplies(cf, seq)) continue;
             double amount = cf.getAmount();
             double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0});
@@ -850,10 +876,12 @@ public class SimulatorService {
             double preFlowBalance = beginning - r.getAnnualWithdrawal();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
+            double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
+            r.setIncomeApplied(incomeFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
-            r.setTotalIncome(r.getAnnualWithdrawal() + (seq >= incomeStartW ? annuityIncome : 0.0));
+            r.setTotalIncome(r.getAnnualWithdrawal() + (seq >= incomeStartW ? annuityIncome : 0.0) + incomeFlow);
             r.setPortfolioEnd(balanceBeforeReturn + gain);
 
             advanceFlowMultipliers(seq, req.getCashFlows(), flowMults, row[0]);

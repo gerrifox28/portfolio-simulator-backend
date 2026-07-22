@@ -42,6 +42,12 @@ public class YearResult {
     /** Net manual cash flow applied this year before the return calculation (0 if none or depleted) */
     private double cashFlowApplied;
 
+    /**
+     * Net manual cash flow entries classified as "Income" this year.
+     * Informational only — does NOT affect portfolioBeginning/portfolioEnd.
+     */
+    private double incomeApplied;
+
     // --- Getters & Setters ---
 
     public int getSequenceNumber() { return sequenceNumber; }
@@ -79,4 +85,7 @@ public class YearResult {
 
     public double getCashFlowApplied() { return cashFlowApplied; }
     public void setCashFlowApplied(double cashFlowApplied) { this.cashFlowApplied = cashFlowApplied; }
+
+    public double getIncomeApplied() { return incomeApplied; }
+    public void setIncomeApplied(double incomeApplied) { this.incomeApplied = incomeApplied; }
 }

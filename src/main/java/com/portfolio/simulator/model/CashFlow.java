@@ -31,4 +31,9 @@ public class CashFlow {
     private String inflationAdj = "none";
     public String getInflationAdj() { return inflationAdj; }
     public void setInflationAdj(String inflationAdj) { this.inflationAdj = inflationAdj != null ? inflationAdj : "none"; }
+
+    /** "cashflow" (default, existing behavior) | "income" — classifies which column this entry feeds. */
+    private String type = "cashflow";
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type != null ? type : "cashflow"; }
 }

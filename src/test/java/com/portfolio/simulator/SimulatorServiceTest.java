@@ -5,6 +5,7 @@ import com.portfolio.simulator.model.AllScenariosResponse;
 import com.portfolio.simulator.model.AnnuityCompareRequest;
 import com.portfolio.simulator.model.AnnuityCompareResponse;
 import com.portfolio.simulator.model.AnnuityRateTable;
+import com.portfolio.simulator.model.CashFlow;
 import com.portfolio.simulator.model.SimulationRequest;
 import com.portfolio.simulator.model.YearResult;
 import com.portfolio.simulator.service.SimulatorService;
@@ -638,6 +639,81 @@ class SimulatorServiceTest {
             assertEquals(r.getAnnualWithdrawal() + r.getAnnuityPayment(),
                          r.getTotalIncome(), 1.0,
                 "Total income must equal withdrawal + annuity payment in year " + r.getYear());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Manual cash flow "Income" classification
+    // -------------------------------------------------------------------------
+
+    private CashFlow buildFlow(String type, double amount) {
+        CashFlow cf = new CashFlow();
+        cf.setId("flow-" + type);
+        cf.setDescription("test flow");
+        cf.setAmount(amount);
+        cf.setAllYears(true);
+        cf.setInflationAdj("none");
+        cf.setType(type);
+        return cf;
+    }
+
+    @Test
+    void incomeFlow_doesNotAffectPortfolioBalances() {
+        SimulationRequest withoutFlow = new SimulationRequest();
+        SimulationRequest withIncomeFlow = new SimulationRequest();
+        withIncomeFlow.setCashFlows(List.of(buildFlow("income", 10_000.0)));
+
+        List<YearResult> baseline = service.simulate(withoutFlow);
+        List<YearResult> withIncome = service.simulate(withIncomeFlow);
+
+        assertEquals(baseline.size(), withIncome.size());
+        for (int i = 0; i < baseline.size(); i++) {
+            assertEquals(baseline.get(i).getPortfolioBeginning(), withIncome.get(i).getPortfolioBeginning(), 0.01,
+                "Income-typed cash flow must not change Begin Balance in year " + (i + 1));
+            assertEquals(baseline.get(i).getPortfolioEnd(), withIncome.get(i).getPortfolioEnd(), 0.01,
+                "Income-typed cash flow must not change End Balance in year " + (i + 1));
+            assertEquals(0.0, withIncome.get(i).getCashFlowApplied(), 0.01,
+                "Income-typed cash flow must not appear in cashFlowApplied");
+            assertEquals(10_000.0, withIncome.get(i).getIncomeApplied(), 0.01,
+                "Income-typed cash flow must be reflected in incomeApplied");
+        }
+    }
+
+    @Test
+    void cashFlowTypeFlow_stillAffectsPortfolioBalance() {
+        SimulationRequest req = new SimulationRequest();
+        req.setCashFlows(List.of(buildFlow("cashflow", 10_000.0)));
+
+        List<YearResult> results = service.simulate(req);
+
+        assertEquals(10_000.0, results.get(0).getCashFlowApplied(), 0.01,
+            "Default \"cashflow\" type must retain existing balance-affecting behavior");
+        assertEquals(0.0, results.get(0).getIncomeApplied(), 0.01);
+    }
+
+    @Test
+    void totalIncome_withoutAnnuity_equalsWithdrawalPlusIncome() {
+        SimulationRequest req = new SimulationRequest();
+        req.setCashFlows(List.of(buildFlow("income", 5_000.0)));
+
+        List<YearResult> results = service.simulate(req);
+
+        for (YearResult r : results) {
+            assertEquals(r.getAnnualWithdrawal() + r.getIncomeApplied(), r.getTotalIncome(), 0.01,
+                "Total Income must equal Withdrawal + Income (no annuity) in year " + r.getYear());
+        }
+    }
+
+    @Test
+    void totalIncome_withAnnuity_equalsWithdrawalPlusIncomePlusAnnuityPmt() {
+        SimulationRequest req = buildAnnuityRequest(20_000.0);
+        req.setCashFlows(List.of(buildFlow("income", 5_000.0)));
+
+        List<YearResult> results = service.simulate(req);
+
+        for (YearResult r : results) {
+            assertEquals(r.getAnnualWithdrawal() + r.getIncomeApplied() + r.getAnnuityPayment(), r.getTotalIncome(), 0.01,
+                "Total Income must equal Withdrawal + Income + Annuity Pmt in year " + r.getYear());
         }
     }
 

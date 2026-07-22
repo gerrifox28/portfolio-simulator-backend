@@ -658,24 +658,58 @@ class SimulatorServiceTest {
     }
 
     @Test
-    void incomeFlow_doesNotAffectPortfolioBalances() {
+    void incomeFlow_reducesWithdrawalFreshEachYear_butNotCashFlowApplied() {
+        // Large nest egg relative to withdrawal keeps both scenarios far from depletion,
+        // so the "clamp withdrawal to remaining balance" logic never kicks in and the
+        // comparison isolates the Income-offset behavior from unrelated balance effects.
         SimulationRequest withoutFlow = new SimulationRequest();
+        withoutFlow.setStartingNestEgg(5_000_000.0);
         SimulationRequest withIncomeFlow = new SimulationRequest();
+        withIncomeFlow.setStartingNestEgg(5_000_000.0);
         withIncomeFlow.setCashFlows(List.of(buildFlow("income", 10_000.0)));
 
         List<YearResult> baseline = service.simulate(withoutFlow);
         List<YearResult> withIncome = service.simulate(withIncomeFlow);
 
-        assertEquals(baseline.size(), withIncome.size());
-        for (int i = 0; i < baseline.size(); i++) {
-            assertEquals(baseline.get(i).getPortfolioBeginning(), withIncome.get(i).getPortfolioBeginning(), 0.01,
-                "Income-typed cash flow must not change Begin Balance in year " + (i + 1));
-            assertEquals(baseline.get(i).getPortfolioEnd(), withIncome.get(i).getPortfolioEnd(), 0.01,
-                "Income-typed cash flow must not change End Balance in year " + (i + 1));
+        // Withdrawal = Desired Income - Income every year (entry applies allYears);
+        // Desired Income itself is unaffected, so it equals the baseline's Withdrawal.
+        int years = Math.min(baseline.size(), withIncome.size());
+        for (int i = 0; i < years; i++) {
+            assertEquals(baseline.get(i).getAnnualWithdrawal() - 10_000.0, withIncome.get(i).getAnnualWithdrawal(), 1.0,
+                "Withdrawal must equal Desired Income minus Income in year " + (i + 1));
             assertEquals(0.0, withIncome.get(i).getCashFlowApplied(), 0.01,
                 "Income-typed cash flow must not appear in cashFlowApplied");
             assertEquals(10_000.0, withIncome.get(i).getIncomeApplied(), 0.01,
                 "Income-typed cash flow must be reflected in incomeApplied");
+        }
+    }
+
+    @Test
+    void incomeFlow_hasNoLastingEffect_onLaterYearsWithdrawalTrajectory() {
+        CashFlow oneTimeIncome = buildFlow("income", 15_000.0);
+        oneTimeIncome.setAllYears(false);
+        oneTimeIncome.setYearStart(1);
+        oneTimeIncome.setYearEnd(1);
+
+        // Large nest egg keeps both scenarios far from depletion (see comment above).
+        SimulationRequest withoutFlow = new SimulationRequest();
+        withoutFlow.setStartingNestEgg(5_000_000.0);
+        SimulationRequest withOneTimeIncome = new SimulationRequest();
+        withOneTimeIncome.setStartingNestEgg(5_000_000.0);
+        withOneTimeIncome.setCashFlows(List.of(oneTimeIncome));
+
+        List<YearResult> baseline = service.simulate(withoutFlow);
+        List<YearResult> withIncome = service.simulate(withOneTimeIncome);
+
+        assertEquals(baseline.get(0).getAnnualWithdrawal() - 15_000.0, withIncome.get(0).getAnnualWithdrawal(), 1.0,
+            "Year 1 Withdrawal must reflect the one-time Income offset");
+
+        // Year 2 onward: the Income entry no longer applies, so Withdrawal must fully
+        // recover to the undiscounted Desired Income trajectory (Option B: no scarring).
+        int years = Math.min(baseline.size(), withIncome.size());
+        for (int i = 1; i < years; i++) {
+            assertEquals(baseline.get(i).getAnnualWithdrawal(), withIncome.get(i).getAnnualWithdrawal(), 1.0,
+                "Withdrawal must fully recover once the Income entry's year range ends (year " + (i + 1) + ")");
         }
     }
 
@@ -715,6 +749,37 @@ class SimulatorServiceTest {
             assertEquals(r.getAnnualWithdrawal() + r.getIncomeApplied() + r.getAnnuityPayment(), r.getTotalIncome(), 0.01,
                 "Total Income must equal Withdrawal + Income + Annuity Pmt in year " + r.getYear());
         }
+    }
+
+    @Test
+    void incomeFlow_withAnnuity_reducesWithdrawalByIncomeAmount() {
+        SimulationRequest withoutIncome = buildAnnuityRequest(20_000.0);
+        SimulationRequest withIncome = buildAnnuityRequest(20_000.0);
+        withIncome.setCashFlows(List.of(buildFlow("income", 5_000.0)));
+
+        List<YearResult> baseline = service.simulate(withoutIncome);
+        List<YearResult> results = service.simulate(withIncome);
+
+        // Year 1: Withdrawal = Desired Income - Annuity - Income, matching the
+        // no-income baseline's Withdrawal (which already nets out the annuity) minus Income.
+        assertEquals(baseline.get(0).getAnnualWithdrawal() - 5_000.0, results.get(0).getAnnualWithdrawal(), 1.0,
+            "Year 1 Withdrawal must additionally subtract the manual Income entry");
+    }
+
+    @Test
+    void simulateAllCompare_incomeFlow_reducesAverageAnnualWithdrawal() {
+        // Exercises simulateWithAnnuity() (the All-Scenarios/annuity-compare path),
+        // the second engine that needed the same Desired-Income-minus-Income treatment.
+        AnnuityCompareRequest withoutIncome = new AnnuityCompareRequest();
+        AnnuityCompareRequest withIncome = new AnnuityCompareRequest();
+        withIncome.setCashFlows(List.of(buildFlow("income", 5_000.0)));
+
+        AnnuityCompareResponse baseline = service.simulateAllCompare(withoutIncome);
+        AnnuityCompareResponse withIncomeResp = service.simulateAllCompare(withIncome);
+
+        assertTrue(withIncomeResp.getWithAnnuity().getAverageAnnualWithdrawal()
+                 < baseline.getWithAnnuity().getAverageAnnualWithdrawal(),
+            "A manual Income entry must lower the average annual Withdrawal in the annuity-compare path");
     }
 
     private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {

@@ -104,6 +104,12 @@ public class SimulatorService {
         // reflects purchasing-power-adjusted dollars, not the flat nominal amount.
         double runningWithdrawal = req.getInitialWithdrawal();
 
+        // Tracks the "Desired Income" trajectory (withdrawal mode growth + annuity offset),
+        // completely independent of manual Income entries. Manual Income only ever discounts
+        // THIS year's displayed Withdrawal (below) — it never feeds back into next year's
+        // growth base, so a temporary Income entry has no lasting effect on later years.
+        double desiredWithdrawal = 0.0;
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -121,12 +127,9 @@ public class SimulatorService {
                 if (hasAnnuity) {
                     r.setAnnuityPayment(annuityIncome);
                     r.setInflationAdjPct(0.0);
-                    double pw = Math.min(Math.max(0, targetIncome - annuityIncome), req.getStartingNestEgg());
-                    r.setAnnualWithdrawal(pw);
-                    r.setTotalIncome(pw + annuityIncome);
+                    desiredWithdrawal = Math.min(Math.max(0, targetIncome - annuityIncome), req.getStartingNestEgg());
                 } else {
-                    r.setAnnualWithdrawal(req.getInitialWithdrawal());
-                    r.setTotalIncome(req.getInitialWithdrawal());
+                    desiredWithdrawal = req.getInitialWithdrawal();
                 }
             } else {
                 YearResult prev = results.get(seq - 2);
@@ -142,10 +145,11 @@ public class SimulatorService {
                         annuityIncome = annuityIncome * (1.0 + adjPct);
                     }
 
-                    // Withdrawal engine — independent of annuity
+                    // Withdrawal engine — independent of annuity — grows from last year's
+                    // Desired Income trajectory, not the Income-discounted actual Withdrawal.
+                    double prevWithdrawal = desiredWithdrawal;
                     double pw;
                     if ("tpa".equals(req.getWithdrawalMode())) {
-                        double prevWithdrawal = prev.getAnnualWithdrawal();
                         if (prev.getPortfolioEnd() == 0) {
                             pw = 0.0;
                         } else if (cpi == 0) {
@@ -158,7 +162,6 @@ public class SimulatorService {
                             pw = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
                         }
                     } else {
-                        double prevWithdrawal = prev.getAnnualWithdrawal();
                         if ("fixed".equals(req.getWithdrawalMode())) {
                             pw = prevWithdrawal;
                         } else {
@@ -170,18 +173,17 @@ public class SimulatorService {
 
                     r.setAnnuityPayment(annuityIncome);
                     r.setInflationAdjPct(adjPct);
-                    r.setAnnualWithdrawal(pw);
-                    r.setTotalIncome(pw + annuityIncome);
+                    desiredWithdrawal = pw;
                 } else {
                     // Standard portfolio-only withdrawal logic
                     double inflationAdjWithdrawal;
                     double prevInflation = prev.getInflation();
+                    double prevWithdrawal = desiredWithdrawal;
 
                     if ("fixed".equals(req.getWithdrawalMode())) {
                         inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : req.getInitialWithdrawal();
 
                     } else if ("tpa".equals(req.getWithdrawalMode())) {
-                        double prevWithdrawal = prev.getAnnualWithdrawal();
                         if (prevInflation == 0) {
                             // No adjustment
                             inflationAdjWithdrawal = prevWithdrawal;
@@ -205,13 +207,12 @@ public class SimulatorService {
                         boolean condOR  = (prev.getSequenceNumber() > 0) || (prevInflation < 0);
                         boolean condAND = (prev.getPortfolioEnd() != 0);
                         if (condOR && condAND) {
-                            inflationAdjWithdrawal = prev.getAnnualWithdrawal() * (1 + prevInflation);
+                            inflationAdjWithdrawal = prevWithdrawal * (1 + prevInflation);
                         } else {
-                            inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prev.getAnnualWithdrawal();
+                            inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prevWithdrawal;
                         }
                     }
-                    r.setAnnualWithdrawal(Math.min(inflationAdjWithdrawal, r.getPortfolioBeginning()));
-                    r.setTotalIncome(r.getAnnualWithdrawal());
+                    desiredWithdrawal = Math.min(inflationAdjWithdrawal, r.getPortfolioBeginning());
                 }
             }
 
@@ -223,24 +224,31 @@ public class SimulatorService {
 
             // ── Income Start Year override ───────────────────────────────────────
             int incomeStart = req.getIncomeStartYear();
+            double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
+            r.setIncomeApplied(incomeFlow);
+
             if (seq < incomeStart) {
                 r.setAnnualWithdrawal(0.0);
-                r.setTotalIncome(0.0);
+                r.setTotalIncome(incomeFlow);
+                desiredWithdrawal = 0.0;
                 if (hasAnnuity) { r.setAnnuityPayment(0.0); r.setInflationAdjPct(0.0); }
-            } else if (seq == incomeStart && seq > 1) {
-                // Use inflation-compounded amount, not the flat nominal base.
-                if (hasAnnuity) {
-                    r.setAnnuityPayment(annuityIncome);
-                    r.setInflationAdjPct(0.0);
-                    double pw = Math.min(Math.max(0.0, runningWithdrawal - annuityIncome),
-                                         r.getPortfolioBeginning());
-                    r.setAnnualWithdrawal(pw);
-                    r.setTotalIncome(pw + annuityIncome);
-                } else {
-                    double w = Math.min(runningWithdrawal, r.getPortfolioBeginning());
-                    r.setAnnualWithdrawal(w);
-                    r.setTotalIncome(w);
+            } else {
+                if (seq == incomeStart && seq > 1) {
+                    // Use inflation-compounded amount, not the flat nominal base.
+                    if (hasAnnuity) {
+                        r.setAnnuityPayment(annuityIncome);
+                        r.setInflationAdjPct(0.0);
+                        desiredWithdrawal = Math.min(Math.max(0.0, runningWithdrawal - annuityIncome),
+                                                      r.getPortfolioBeginning());
+                    } else {
+                        desiredWithdrawal = Math.min(runningWithdrawal, r.getPortfolioBeginning());
+                    }
                 }
+                // Withdrawal = Desired Income − Income, recomputed fresh every year so a
+                // manual Income entry never has a lasting effect beyond the year(s) it applies to.
+                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeFlow), r.getPortfolioBeginning());
+                r.setAnnualWithdrawal(finalWithdrawal);
+                r.setTotalIncome(finalWithdrawal + incomeFlow + (hasAnnuity ? r.getAnnuityPayment() : 0.0));
             }
 
             double rate = computeBlendedReturn(year, req);
@@ -251,9 +259,6 @@ public class SimulatorService {
             double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
-            double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
-            r.setIncomeApplied(incomeFlow);
-            r.setTotalIncome(r.getTotalIncome() + incomeFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
@@ -795,6 +800,10 @@ public class SimulatorService {
 
         Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
 
+        // Tracks the Desired Income trajectory (withdrawal mode growth + annuity offset),
+        // independent of manual Income entries — see simulate() for why.
+        double desiredWithdrawal = 0.0;
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -808,12 +817,11 @@ public class SimulatorService {
             r.setInflation(row[0]);
 
             double beginning;
-            double portfolioWithdrawal;
 
             if (seq == 1) {
                 beginning = req.getStartingNestEgg();
-                portfolioWithdrawal = Math.max(0, targetIncome - annuityIncome);
-                portfolioWithdrawal = Math.min(portfolioWithdrawal, beginning);
+                desiredWithdrawal = Math.max(0, targetIncome - annuityIncome);
+                desiredWithdrawal = Math.min(desiredWithdrawal, beginning);
             } else {
                 YearResult prev = results.get(seq - 2);
                 beginning = prev.getPortfolioEnd();
@@ -827,34 +835,33 @@ public class SimulatorService {
                     annuityIncome = annuityIncome * (1.0 + adjPct);
                 }
 
-                // Withdrawal engine — independent of annuity
+                // Withdrawal engine — independent of annuity — grows from last year's
+                // Desired Income trajectory, not the Income-discounted actual Withdrawal.
+                double prevWithdrawal = desiredWithdrawal;
                 if ("tpa".equals(req.getWithdrawalMode())) {
-                    double prevWithdrawal = prev.getAnnualWithdrawal();
                     if (prev.getPortfolioEnd() == 0) {
-                        portfolioWithdrawal = 0.0;
+                        desiredWithdrawal = 0.0;
                     } else if (cpi == 0) {
-                        portfolioWithdrawal = prevWithdrawal;
+                        desiredWithdrawal = prevWithdrawal;
                     } else if (cpi < 0) {
-                        portfolioWithdrawal = prevWithdrawal * (1.0 + cpi);
+                        desiredWithdrawal = prevWithdrawal * (1.0 + cpi);
                     } else {
                         double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / beginning;
                         double threshold = TpaTable.lookup(seq, req.getYearCount());
-                        portfolioWithdrawal = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
+                        desiredWithdrawal = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
                     }
                 } else {
-                    double prevWithdrawal = prev.getAnnualWithdrawal();
                     if ("fixed".equals(req.getWithdrawalMode())) {
-                        portfolioWithdrawal = prevWithdrawal;
+                        desiredWithdrawal = prevWithdrawal;
                     } else {
-                        portfolioWithdrawal = prevWithdrawal * (1.0 + cpi);
+                        desiredWithdrawal = prevWithdrawal * (1.0 + cpi);
                     }
-                    portfolioWithdrawal = Math.max(0, portfolioWithdrawal);
+                    desiredWithdrawal = Math.max(0, desiredWithdrawal);
                 }
-                portfolioWithdrawal = Math.min(portfolioWithdrawal, Math.max(0, beginning));
+                desiredWithdrawal = Math.min(desiredWithdrawal, Math.max(0, beginning));
             }
 
             r.setPortfolioBeginning(beginning);
-            r.setAnnualWithdrawal(portfolioWithdrawal);
 
             if (seq > 1 && !"fixed".equals(req.getWithdrawalMode())) {
                 runningTargetIncome *= (1.0 + results.get(seq - 2).getInflation());
@@ -862,12 +869,22 @@ public class SimulatorService {
 
             // Income start year override
             int incomeStartW = req.getIncomeStartYear();
+            double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
+            r.setIncomeApplied(incomeFlow);
+
             if (seq < incomeStartW) {
                 r.setAnnualWithdrawal(0.0);
-                r.setTotalIncome(0.0);
-            } else if (seq == incomeStartW && seq > 1) {
-                double baseW = Math.min(Math.max(0.0, runningTargetIncome - annuityIncome), beginning);
-                r.setAnnualWithdrawal(baseW);
+                r.setTotalIncome(incomeFlow);
+                desiredWithdrawal = 0.0;
+            } else {
+                if (seq == incomeStartW && seq > 1) {
+                    desiredWithdrawal = Math.min(Math.max(0.0, runningTargetIncome - annuityIncome), beginning);
+                }
+                // Withdrawal = Desired Income − Income, recomputed fresh every year so a
+                // manual Income entry never has a lasting effect beyond the year(s) it applies to.
+                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeFlow), beginning);
+                r.setAnnualWithdrawal(finalWithdrawal);
+                r.setTotalIncome(finalWithdrawal + incomeFlow + annuityIncome);
             }
 
             double rate = computeBlendedReturn(year, req);
@@ -876,12 +893,9 @@ public class SimulatorService {
             double preFlowBalance = beginning - r.getAnnualWithdrawal();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
-            double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
-            r.setIncomeApplied(incomeFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
             double gain = rate * balanceBeforeReturn;
             r.setPortfolioReturnDollars(gain);
-            r.setTotalIncome(r.getAnnualWithdrawal() + (seq >= incomeStartW ? annuityIncome : 0.0) + incomeFlow);
             r.setPortfolioEnd(balanceBeforeReturn + gain);
 
             advanceFlowMultipliers(seq, req.getCashFlows(), flowMults, row[0]);

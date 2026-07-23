@@ -147,23 +147,29 @@ public class SimulatorService {
                         annuityIncome = annuityIncome * (1.0 + adjPct);
                     }
 
-                    // Withdrawal engine — independent of annuity — grows from last year's
-                    // Desired Income trajectory, not the Income-discounted actual Withdrawal.
-                    double prevWithdrawal = desiredWithdrawal;
+                    // Withdrawal engine — independent of annuity.
                     double pw;
                     if ("tpa".equals(req.getWithdrawalMode())) {
+                        // TPA governs the ACTUAL portfolio withdrawal directly (net-carry,
+                        // same as the annuity offset above) — its ratio must reflect what's
+                        // truly being pulled from the portfolio, or a large manual Income
+                        // offset makes the ratio look permanently unsustainable even when
+                        // the portfolio is thriving.
+                        double actualPrevWithdrawal = prev.getAnnualWithdrawal();
                         if (prev.getPortfolioEnd() == 0) {
                             pw = 0.0;
                         } else if (cpi == 0) {
-                            pw = prevWithdrawal;
+                            pw = actualPrevWithdrawal;
                         } else if (cpi < 0) {
-                            pw = prevWithdrawal * (1.0 + cpi);
+                            pw = actualPrevWithdrawal * (1.0 + cpi);
                         } else {
-                            double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / r.getPortfolioBeginning();
+                            double ratio = (actualPrevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / r.getPortfolioBeginning();
                             double threshold = TpaTable.lookup(seq, req.getYearCount());
-                            pw = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
+                            pw = (ratio <= threshold) ? actualPrevWithdrawal * (1.0 + cpi) : actualPrevWithdrawal;
                         }
                     } else {
+                        // Decoupled Desired Income trajectory (Option B — no lasting Income effect).
+                        double prevWithdrawal = desiredWithdrawal;
                         if ("fixed".equals(req.getWithdrawalMode())) {
                             pw = prevWithdrawal;
                         } else {
@@ -180,32 +186,36 @@ public class SimulatorService {
                     // Standard portfolio-only withdrawal logic
                     double inflationAdjWithdrawal;
                     double prevInflation = prev.getInflation();
-                    double prevWithdrawal = desiredWithdrawal;
 
                     if ("fixed".equals(req.getWithdrawalMode())) {
                         inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : req.getInitialWithdrawal();
 
                     } else if ("tpa".equals(req.getWithdrawalMode())) {
+                        // TPA governs the ACTUAL portfolio withdrawal directly — see comment
+                        // in the annuity branch above for why.
+                        double actualPrevWithdrawal = prev.getAnnualWithdrawal();
                         if (prevInflation == 0) {
                             // No adjustment
-                            inflationAdjWithdrawal = prevWithdrawal;
+                            inflationAdjWithdrawal = actualPrevWithdrawal;
                         } else if (prevInflation < 0) {
                             // Negative CPI — always apply (reduces withdrawal)
-                            inflationAdjWithdrawal = prevWithdrawal * (1.0 + prevInflation);
+                            inflationAdjWithdrawal = actualPrevWithdrawal * (1.0 + prevInflation);
                         } else {
                             // Positive CPI — apply only if TPA ratio allows it
-                            double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + prevInflation) / r.getPortfolioBeginning();
+                            double ratio = (actualPrevWithdrawal - prev.getCashFlowApplied()) * (1.0 + prevInflation) / r.getPortfolioBeginning();
                             double threshold = TpaTable.lookup(seq, req.getYearCount());
                             if (ratio <= threshold) {
-                                inflationAdjWithdrawal = prevWithdrawal * (1.0 + prevInflation);
+                                inflationAdjWithdrawal = actualPrevWithdrawal * (1.0 + prevInflation);
                             } else {
-                                inflationAdjWithdrawal = prevWithdrawal;
+                                inflationAdjWithdrawal = actualPrevWithdrawal;
                             }
                         }
                         if (prev.getPortfolioEnd() == 0) inflationAdjWithdrawal = 0.0;
 
                     } else {
-                        // Inflation-adjusted (default) — matches original spreadsheet formula
+                        // Inflation-adjusted (default) — decoupled Desired Income trajectory
+                        // (Option B — no lasting Income effect), matches original spreadsheet formula.
+                        double prevWithdrawal = desiredWithdrawal;
                         boolean condOR  = (prev.getSequenceNumber() > 0) || (prevInflation < 0);
                         boolean condAND = (prev.getPortfolioEnd() != 0);
                         if (condOR && condAND) {
@@ -249,7 +259,11 @@ public class SimulatorService {
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.
-                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeFlow), r.getPortfolioBeginning());
+                // Exception: TPA's ongoing year-over-year growth (above) already operates on the
+                // actual, Income-net Withdrawal, so Income must not be subtracted a second time here.
+                boolean tpaAlreadyNetOfIncome = "tpa".equals(req.getWithdrawalMode()) && seq > 1 && seq != incomeStart;
+                double incomeToSubtract = tpaAlreadyNetOfIncome ? 0.0 : incomeFlow;
+                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeToSubtract), r.getPortfolioBeginning());
                 r.setAnnualWithdrawal(finalWithdrawal);
                 r.setTotalIncome(finalWithdrawal + incomeFlow + (hasAnnuity ? r.getAnnuityPayment() : 0.0));
             }
@@ -839,22 +853,25 @@ public class SimulatorService {
                     annuityIncome = annuityIncome * (1.0 + adjPct);
                 }
 
-                // Withdrawal engine — independent of annuity — grows from last year's
-                // Desired Income trajectory, not the Income-discounted actual Withdrawal.
-                double prevWithdrawal = desiredWithdrawal;
+                // Withdrawal engine — independent of annuity.
                 if ("tpa".equals(req.getWithdrawalMode())) {
+                    // TPA governs the ACTUAL portfolio withdrawal directly (net-carry, same
+                    // as the annuity offset) — see simulate() for why.
+                    double actualPrevWithdrawal = prev.getAnnualWithdrawal();
                     if (prev.getPortfolioEnd() == 0) {
                         desiredWithdrawal = 0.0;
                     } else if (cpi == 0) {
-                        desiredWithdrawal = prevWithdrawal;
+                        desiredWithdrawal = actualPrevWithdrawal;
                     } else if (cpi < 0) {
-                        desiredWithdrawal = prevWithdrawal * (1.0 + cpi);
+                        desiredWithdrawal = actualPrevWithdrawal * (1.0 + cpi);
                     } else {
-                        double ratio = (prevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / beginning;
+                        double ratio = (actualPrevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / beginning;
                         double threshold = TpaTable.lookup(seq, req.getYearCount());
-                        desiredWithdrawal = (ratio <= threshold) ? prevWithdrawal * (1.0 + cpi) : prevWithdrawal;
+                        desiredWithdrawal = (ratio <= threshold) ? actualPrevWithdrawal * (1.0 + cpi) : actualPrevWithdrawal;
                     }
                 } else {
+                    // Decoupled Desired Income trajectory (Option B — no lasting Income effect).
+                    double prevWithdrawal = desiredWithdrawal;
                     if ("fixed".equals(req.getWithdrawalMode())) {
                         desiredWithdrawal = prevWithdrawal;
                     } else {
@@ -887,7 +904,11 @@ public class SimulatorService {
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.
-                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeFlow), beginning);
+                // Exception: TPA's ongoing year-over-year growth (above) already operates on the
+                // actual, Income-net Withdrawal, so Income must not be subtracted a second time here.
+                boolean tpaAlreadyNetOfIncome = "tpa".equals(req.getWithdrawalMode()) && seq > 1 && seq != incomeStartW;
+                double incomeToSubtract = tpaAlreadyNetOfIncome ? 0.0 : incomeFlow;
+                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeToSubtract), beginning);
                 r.setAnnualWithdrawal(finalWithdrawal);
                 r.setTotalIncome(finalWithdrawal + incomeFlow + annuityIncome);
             }

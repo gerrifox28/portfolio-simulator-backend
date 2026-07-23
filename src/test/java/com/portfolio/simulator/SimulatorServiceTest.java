@@ -949,6 +949,90 @@ class SimulatorServiceTest {
         assertEquals(16, results.size(), "Simulation must stop at the genuine exhaustion year");
     }
 
+    /**
+     * Regression test built from a real client scenario (TPA mode, large Social Security /
+     * FIA / pension Income entries). Before this fix, TPA's sustainability ratio was computed
+     * against the pre-Income "Desired Income" target (~$736K) instead of the actual dollar
+     * amount pulled from the portfolio (~$90K-380K once Income is netted out) — this made the
+     * ratio look permanently unsustainable, freezing TOTAL INCOME while WITHDRAWAL kept
+     * shrinking underneath it as Income grew, and the freeze didn't lift until the portfolio
+     * ballooned past $9M. TPA must instead freeze/grow the actual Withdrawal directly.
+     */
+    @Test
+    void tpaMode_freezesActualWithdrawal_notThePreIncomeTarget() {
+        SimulationRequest req = new SimulationRequest();
+        req.setStartYear(1970);
+        req.setStartingNestEgg(2_076_222.0);
+        req.setInitialWithdrawal(500_000.0);
+        req.setExpensesAndMgmtFee(0.002);
+        req.setWithdrawalMode("tpa");
+        req.setYearCount(40);
+        req.setIncomeStartYear(7);
+        req.setSp500(0.0);
+        req.setCrsp1_10(0.25);
+        req.setCrsp6_10(0.20);
+        req.setFfIntl(0.10);
+        req.setFfEmgMkts(0.05);
+        req.setDjUsReit(0.05);
+        req.setOneMonth(0.05);
+        req.setFiveYearUS(0.30);
+
+        CashFlow afSS = new CashFlow();
+        afSS.setId("1"); afSS.setDescription("AF SS"); afSS.setAmount(65500);
+        afSS.setAllYears(false); afSS.setYearStart(7); afSS.setYearEnd(40);
+        afSS.setInflationAdj("half"); afSS.setType("income");
+
+        CashFlow afAvantis = new CashFlow();
+        afAvantis.setId("2"); afAvantis.setDescription("AF Avantis Barclays FIA"); afAvantis.setAmount(48000);
+        afAvantis.setAllYears(false); afAvantis.setYearStart(7); afAvantis.setYearEnd(40);
+        afAvantis.setInflationAdj("half"); afAvantis.setType("income");
+
+        CashFlow afAllianz = new CashFlow();
+        afAllianz.setId("3"); afAllianz.setDescription("AF Allianz FIA"); afAllianz.setAmount(99000);
+        afAllianz.setAllYears(false); afAllianz.setYearStart(7); afAllianz.setYearEnd(40);
+        afAllianz.setInflationAdj("half"); afAllianz.setType("income");
+
+        CashFlow preRetirement = new CashFlow();
+        preRetirement.setId("4"); preRetirement.setDescription("Pre-retirement funding"); preRetirement.setAmount(75000);
+        preRetirement.setAllYears(false); preRetirement.setYearStart(1); preRetirement.setYearEnd(6);
+        preRetirement.setInflationAdj("none");
+
+        CashFlow gfSS = new CashFlow();
+        gfSS.setId("5"); gfSS.setDescription("GF SS"); gfSS.setAmount(28500);
+        gfSS.setAllYears(false); gfSS.setYearStart(7); gfSS.setYearEnd(36);
+        gfSS.setInflationAdj("half"); gfSS.setType("income");
+
+        CashFlow ffs = new CashFlow();
+        ffs.setId("6"); ffs.setDescription("AF FFS \"Annuity\""); ffs.setAmount(100000);
+        ffs.setAllYears(false); ffs.setYearStart(7); ffs.setYearEnd(40);
+        ffs.setInflationAdj("full"); ffs.setType("income");
+
+        CashFlow gfPension = new CashFlow();
+        gfPension.setId("7"); gfPension.setDescription("GF Fixed Pensions"); gfPension.setAmount(14190);
+        gfPension.setAllYears(false); gfPension.setYearStart(6); gfPension.setYearEnd(40);
+        gfPension.setInflationAdj("none"); gfPension.setType("income");
+
+        req.setCashFlows(List.of(afSS, afAvantis, afAllianz, preRetirement, gfSS, ffs, gfPension));
+
+        List<YearResult> results = service.simulate(req);
+
+        // Year 7 (index 6) through year 26 (index 25): TPA's ratio never clears the threshold
+        // (the portfolio hasn't grown enough yet), so Withdrawal must stay frozen at the exact
+        // year-7 amount for this whole span, while Total Income keeps growing from Income alone.
+        double frozenWithdrawal = results.get(6).getAnnualWithdrawal();
+        for (int i = 7; i <= 25; i++) {
+            assertEquals(frozenWithdrawal, results.get(i).getAnnualWithdrawal(), 0.01,
+                "Withdrawal must stay frozen at the year-7 amount in year " + results.get(i).getYear());
+            assertTrue(results.get(i).getTotalIncome() > results.get(i - 1).getTotalIncome(),
+                "Total Income must keep growing (from Income alone) in year " + results.get(i).getYear());
+        }
+
+        // Year 27 (index 26): the portfolio has grown enough that the ratio finally clears the
+        // threshold, so Withdrawal must unfreeze and grow past the long-frozen amount.
+        assertTrue(results.get(26).getAnnualWithdrawal() > frozenWithdrawal,
+            "Withdrawal must unfreeze and grow once TPA's ratio clears the threshold");
+    }
+
     private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {
         SimulationRequest req = new SimulationRequest();
         req.setStartYear(1951);

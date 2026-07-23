@@ -127,7 +127,9 @@ public class SimulatorService {
                 if (hasAnnuity) {
                     r.setAnnuityPayment(annuityIncome);
                     r.setInflationAdjPct(0.0);
-                    desiredWithdrawal = Math.min(Math.max(0, targetIncome - annuityIncome), req.getStartingNestEgg());
+                    // Not clamped to the nest egg here — only the final, post-Income
+                    // Withdrawal (below) is ever capped by what the portfolio can afford.
+                    desiredWithdrawal = Math.max(0, targetIncome - annuityIncome);
                 } else {
                     desiredWithdrawal = req.getInitialWithdrawal();
                 }
@@ -169,7 +171,7 @@ public class SimulatorService {
                         }
                         pw = Math.max(0, pw);
                     }
-                    pw = Math.min(pw, Math.max(0, prev.getPortfolioEnd()));
+                    // Not clamped to the portfolio balance here — see seq==1 comment above.
 
                     r.setAnnuityPayment(annuityIncome);
                     r.setInflationAdjPct(adjPct);
@@ -212,7 +214,8 @@ public class SimulatorService {
                             inflationAdjWithdrawal = (prev.getPortfolioEnd() == 0) ? 0.0 : prevWithdrawal;
                         }
                     }
-                    desiredWithdrawal = Math.min(inflationAdjWithdrawal, r.getPortfolioBeginning());
+                    // Not clamped to the portfolio balance here — see seq==1 comment above.
+                    desiredWithdrawal = inflationAdjWithdrawal;
                 }
             }
 
@@ -235,13 +238,13 @@ public class SimulatorService {
             } else {
                 if (seq == incomeStart && seq > 1) {
                     // Use inflation-compounded amount, not the flat nominal base.
+                    // Not clamped to the portfolio balance here — see seq==1 comment above.
                     if (hasAnnuity) {
                         r.setAnnuityPayment(annuityIncome);
                         r.setInflationAdjPct(0.0);
-                        desiredWithdrawal = Math.min(Math.max(0.0, runningWithdrawal - annuityIncome),
-                                                      r.getPortfolioBeginning());
+                        desiredWithdrawal = Math.max(0.0, runningWithdrawal - annuityIncome);
                     } else {
-                        desiredWithdrawal = Math.min(runningWithdrawal, r.getPortfolioBeginning());
+                        desiredWithdrawal = runningWithdrawal;
                     }
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
@@ -820,8 +823,9 @@ public class SimulatorService {
 
             if (seq == 1) {
                 beginning = req.getStartingNestEgg();
+                // Not clamped to the nest egg here — only the final, post-Income
+                // Withdrawal (below) is ever capped by what the portfolio can afford.
                 desiredWithdrawal = Math.max(0, targetIncome - annuityIncome);
-                desiredWithdrawal = Math.min(desiredWithdrawal, beginning);
             } else {
                 YearResult prev = results.get(seq - 2);
                 beginning = prev.getPortfolioEnd();
@@ -858,7 +862,7 @@ public class SimulatorService {
                     }
                     desiredWithdrawal = Math.max(0, desiredWithdrawal);
                 }
-                desiredWithdrawal = Math.min(desiredWithdrawal, Math.max(0, beginning));
+                // Not clamped to the portfolio balance here — see seq==1 comment above.
             }
 
             r.setPortfolioBeginning(beginning);
@@ -878,7 +882,8 @@ public class SimulatorService {
                 desiredWithdrawal = 0.0;
             } else {
                 if (seq == incomeStartW && seq > 1) {
-                    desiredWithdrawal = Math.min(Math.max(0.0, runningTargetIncome - annuityIncome), beginning);
+                    // Not clamped to the portfolio balance here — see seq==1 comment above.
+                    desiredWithdrawal = Math.max(0.0, runningTargetIncome - annuityIncome);
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.

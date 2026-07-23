@@ -782,6 +782,173 @@ class SimulatorServiceTest {
             "A manual Income entry must lower the average annual Withdrawal in the annuity-compare path");
     }
 
+    // -------------------------------------------------------------------------
+    // Exhaustion clamp: Withdrawal = Begin Balance, End Balance = $0, when the
+    // required withdrawal exceeds the available balance.
+    // -------------------------------------------------------------------------
+
+    /** Zero-return request so portfolio math is exact (no market noise). */
+    private SimulationRequest zeroReturnRequest() {
+        SimulationRequest req = new SimulationRequest();
+        req.setSp500(0.0); req.setCrsp1_10(0.0); req.setOneMonth(0.0);
+        req.setFiveYearUS(0.0); req.setCrsp6_10(0.0); req.setFfIntl(0.0);
+        req.setDjUsReit(0.0); req.setFfEmgMkts(0.0); req.setExpensesAndMgmtFee(0.0);
+        return req;
+    }
+
+    @Test
+    void exhaustion_year1_withdrawalExceedsNestEgg_clampsAndZeroesEndBalance() {
+        SimulationRequest req = zeroReturnRequest();
+        req.setStartingNestEgg(35_000.0);
+        req.setInitialWithdrawal(50_000.0); // required > begin balance in year 1
+
+        List<YearResult> results = service.simulate(req);
+
+        assertEquals(1, results.size(), "Simulation must stop the year the portfolio is exhausted");
+        assertEquals(35_000.0, results.get(0).getAnnualWithdrawal(), 0.01,
+            "Withdrawal must equal the entire Begin Balance, not the unaffordable required amount");
+        assertEquals(0.0, results.get(0).getPortfolioEnd(), 0.01, "End Balance must be exactly $0");
+    }
+
+    @Test
+    void exhaustion_midSimulation_withdrawalExceedsRemainingBalance_clampsAndZeroesEndBalance() {
+        SimulationRequest req = zeroReturnRequest();
+        req.setStartingNestEgg(100_000.0);
+        req.setInitialWithdrawal(60_000.0);
+        req.setWithdrawalMode("fixed"); // withdrawal stays $60k every year regardless of balance
+
+        List<YearResult> results = service.simulate(req);
+
+        // Year 1: begin 100k, withdraw 60k (required < begin, normal), end 40k.
+        assertEquals(60_000.0, results.get(0).getAnnualWithdrawal(), 0.01);
+        assertEquals(40_000.0, results.get(0).getPortfolioEnd(), 0.01);
+
+        // Year 2: begin 40k, required 60k > begin 40k -> exhaustion clamp.
+        assertEquals(2, results.size(), "Simulation must stop at the exhaustion year");
+        assertEquals(40_000.0, results.get(1).getAnnualWithdrawal(), 0.01,
+            "Withdrawal must equal the entire remaining Begin Balance");
+        assertEquals(0.0, results.get(1).getPortfolioEnd(), 0.01, "End Balance must be exactly $0");
+    }
+
+    @Test
+    void exhaustion_cashFlowEntry_doesNotRevivePortfolioPastZero() {
+        SimulationRequest req = zeroReturnRequest();
+        req.setStartingNestEgg(35_000.0);
+        req.setInitialWithdrawal(50_000.0); // required > begin balance in year 1
+        CashFlow positiveCashFlow = buildFlow("cashflow", 50_000.0);
+        req.setCashFlows(List.of(positiveCashFlow));
+
+        List<YearResult> results = service.simulate(req);
+
+        assertEquals(0.0, results.get(0).getCashFlowApplied(), 0.01,
+            "Cash Flow must not apply once the pre-flow balance is already exhausted");
+        assertEquals(0.0, results.get(0).getPortfolioEnd(), 0.01,
+            "End Balance must stay exactly $0 even with an active Cash Flow entry that year");
+    }
+
+    @Test
+    void exhaustion_normalCase_belowBalance_isUnaffected() {
+        SimulationRequest req = zeroReturnRequest();
+        req.setStartingNestEgg(80_000.0);
+        req.setInitialWithdrawal(50_000.0); // required < begin balance
+
+        List<YearResult> results = service.simulate(req);
+
+        assertEquals(50_000.0, results.get(0).getAnnualWithdrawal(), 0.01,
+            "Normal case: Withdrawal must equal the required amount, not the full balance");
+        assertEquals(30_000.0, results.get(0).getPortfolioEnd(), 0.01);
+    }
+
+    /**
+     * Regression test built from a real client scenario (large Social Security / FIA /
+     * pension Income entries, inflation-adjusted mode, income deferred to year 7). Before
+     * the fix, the internal "Desired Income" trajectory was clamped to the portfolio
+     * balance BEFORE subtracting Income, so a year with large Income entries would freeze
+     * Desired Income at whatever the balance happened to be that year — permanently
+     * distorting all later years — even though the actual (post-Income) Withdrawal was
+     * well within what the portfolio could afford.
+     */
+    @Test
+    void desiredIncomeTrajectory_notPrematurelyClampedByLargeIncomeEntries() {
+        SimulationRequest req = new SimulationRequest();
+        req.setStartYear(1970);
+        req.setStartingNestEgg(2_061_222.0);
+        req.setInitialWithdrawal(500_000.0);
+        req.setExpensesAndMgmtFee(0.002);
+        req.setWithdrawalMode("inflation_adjusted");
+        req.setYearCount(40);
+        req.setIncomeStartYear(7);
+        req.setSp500(0.0);
+        req.setCrsp1_10(0.25);
+        req.setCrsp6_10(0.20);
+        req.setFfIntl(0.10);
+        req.setFfEmgMkts(0.05);
+        req.setDjUsReit(0.05);
+        req.setOneMonth(0.05);
+        req.setFiveYearUS(0.30);
+
+        CashFlow afSS = new CashFlow();
+        afSS.setId("1"); afSS.setDescription("AF SS"); afSS.setAmount(65500);
+        afSS.setAllYears(false); afSS.setYearStart(7); afSS.setYearEnd(40);
+        afSS.setInflationAdj("half"); afSS.setType("income");
+
+        CashFlow afAvantis = new CashFlow();
+        afAvantis.setId("2"); afAvantis.setDescription("AF Avantis Barclays FIA"); afAvantis.setAmount(48000);
+        afAvantis.setAllYears(false); afAvantis.setYearStart(7); afAvantis.setYearEnd(40);
+        afAvantis.setInflationAdj("half"); afAvantis.setType("income");
+
+        CashFlow afAllianz = new CashFlow();
+        afAllianz.setId("3"); afAllianz.setDescription("AF Allianz FIA"); afAllianz.setAmount(99000);
+        afAllianz.setAllYears(false); afAllianz.setYearStart(7); afAllianz.setYearEnd(40);
+        afAllianz.setInflationAdj("half"); afAllianz.setType("income");
+
+        CashFlow preRetirement = new CashFlow();
+        preRetirement.setId("4"); preRetirement.setDescription("Pre-retirement funding"); preRetirement.setAmount(75000);
+        preRetirement.setAllYears(false); preRetirement.setYearStart(1); preRetirement.setYearEnd(6);
+        preRetirement.setInflationAdj("none"); // no "type" in saved file -> defaults to "cashflow"
+
+        CashFlow gfSS = new CashFlow();
+        gfSS.setId("5"); gfSS.setDescription("GF SS"); gfSS.setAmount(28500);
+        gfSS.setAllYears(false); gfSS.setYearStart(7); gfSS.setYearEnd(36);
+        gfSS.setInflationAdj("half"); gfSS.setType("income");
+
+        CashFlow ffs = new CashFlow();
+        ffs.setId("6"); ffs.setDescription("AF FFS \"Annuity\""); ffs.setAmount(100000);
+        ffs.setAllYears(false); ffs.setYearStart(7); ffs.setYearEnd(40);
+        ffs.setInflationAdj("full"); ffs.setType("income");
+
+        CashFlow gfPension = new CashFlow();
+        gfPension.setId("7"); gfPension.setDescription("GF Fixed Pensions"); gfPension.setAmount(14190);
+        gfPension.setAllYears(false); gfPension.setYearStart(6); gfPension.setYearEnd(40);
+        gfPension.setInflationAdj("none"); gfPension.setType("income");
+
+        req.setCashFlows(List.of(afSS, afAvantis, afAllianz, preRetirement, gfSS, ffs, gfPension));
+
+        List<YearResult> results = service.simulate(req);
+
+        // Years 7-15 (index 6-14): Withdrawal must grow every year (never freeze or shrink) —
+        // the portfolio stays healthy throughout, so nothing should be clamping it early.
+        for (int i = 7; i <= 14; i++) {
+            assertTrue(results.get(i).getAnnualWithdrawal() > results.get(i - 1).getAnnualWithdrawal(),
+                "Withdrawal must keep growing in year " + results.get(i).getYear()
+                    + " — a premature clamp would freeze or shrink it despite a healthy portfolio");
+        }
+
+        // Year 15 (index 14, calendar 1984): must NOT be artificially capped to Begin Balance —
+        // the real (Income-net) Withdrawal need is well within what the portfolio can afford.
+        YearResult year15 = results.get(14);
+        assertTrue(year15.getAnnualWithdrawal() < year15.getPortfolioBeginning(),
+            "Year 15 Withdrawal must not be clamped down to exactly the Begin Balance");
+
+        // Year 16 (index 15, calendar 1985): the portfolio is genuinely exhausted here —
+        // Withdrawal must equal the full remaining Begin Balance and End Balance must be $0.
+        YearResult year16 = results.get(15);
+        assertEquals(year16.getPortfolioBeginning(), year16.getAnnualWithdrawal(), 0.01,
+            "Year 16 Withdrawal must equal the entire remaining Begin Balance (genuine exhaustion)");
+        assertEquals(0.0, year16.getPortfolioEnd(), 0.01, "Year 16 End Balance must be exactly $0");
+        assertEquals(16, results.size(), "Simulation must stop at the genuine exhaustion year");
+    }
+
     private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {
         SimulationRequest req = new SimulationRequest();
         req.setStartYear(1951);

@@ -476,6 +476,54 @@ class SimulatorServiceTest {
     }
 
     @Test
+    void annuityCompare_deferredIncomeStart_boostsAnnuityRate() {
+        // Income Start Year 7 = 6 years of deferral past purchase (year 1).
+        // Boost = Annual Increase % (age 65) × 6 years, added once (not compounded).
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(65);
+        req.setJoint(false);
+        req.setIncomeStartYear(7);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        double expectedRate = AnnuityRateTable.lookup(65, false)
+            + AnnuityRateTable.lookupAnnualIncreasePct(65) * 6;
+        assertEquals(expectedRate, resp.getAnnuityRate(), 0.0001,
+            "Deferred annuity rate should equal base rate + (annual increase % × deferral years)");
+    }
+
+    @Test
+    void annuityCompare_noDeferral_rateUnboosted() {
+        // Income Start Year 1 (the default) = 0 years of deferral -> no boost at all.
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(65);
+        req.setJoint(false);
+        req.setIncomeStartYear(1);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        assertEquals(AnnuityRateTable.lookup(65, false), resp.getAnnuityRate(), 0.0001,
+            "With no deferral, the annuity rate should be exactly the base rate table value");
+    }
+
+    @Test
+    void annuityCompare_longerDeferral_higherRate() {
+        AnnuityCompareRequest shortDeferral = new AnnuityCompareRequest();
+        shortDeferral.setAge(65);
+        shortDeferral.setIncomeStartYear(3);
+
+        AnnuityCompareRequest longDeferral = new AnnuityCompareRequest();
+        longDeferral.setAge(65);
+        longDeferral.setIncomeStartYear(10);
+
+        double shortRate = service.simulateAllCompare(shortDeferral).getAnnuityRate();
+        double longRate  = service.simulateAllCompare(longDeferral).getAnnuityRate();
+
+        assertTrue(longRate > shortRate,
+            "Waiting longer to start income should yield a higher effective annuity rate");
+    }
+
+    @Test
     void annuityCompare_zeroPctAnnuity_withAnnuityMatchesWithoutAnnuity() {
         // 0% annuitized means no annuity income at all — both legs should be identical
         AnnuityCompareRequest req = new AnnuityCompareRequest();

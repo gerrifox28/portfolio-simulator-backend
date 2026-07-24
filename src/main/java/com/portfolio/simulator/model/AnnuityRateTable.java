@@ -49,6 +49,46 @@ public final class AnnuityRateTable {
         Map.entry(80, new double[]{0.0850, 0.0800})
     );
 
+    /**
+     * Per-age deferral bonus rate: added to the base payout rate once for each full year
+     * between annuity purchase (simulation year 1) and the income start year, to reward
+     * deferring income. Source: Annuity Increase Percentages.xlsx.
+     */
+    private static final Map<Integer, Double> ANNUAL_INCREASE = Map.ofEntries(
+        Map.entry(49, 0.0045),
+        Map.entry(50, 0.0045),
+        Map.entry(51, 0.0046),
+        Map.entry(52, 0.0047),
+        Map.entry(53, 0.0048),
+        Map.entry(54, 0.0049),
+        Map.entry(55, 0.0050),
+        Map.entry(56, 0.0051),
+        Map.entry(57, 0.0052),
+        Map.entry(58, 0.0053),
+        Map.entry(59, 0.0054),
+        Map.entry(60, 0.0055),
+        Map.entry(61, 0.0056),
+        Map.entry(62, 0.0057),
+        Map.entry(63, 0.0058),
+        Map.entry(64, 0.0059),
+        Map.entry(65, 0.0060),
+        Map.entry(66, 0.0061),
+        Map.entry(67, 0.0062),
+        Map.entry(68, 0.0063),
+        Map.entry(69, 0.0064),
+        Map.entry(70, 0.0065),
+        Map.entry(71, 0.0066),
+        Map.entry(72, 0.0067),
+        Map.entry(73, 0.0068),
+        Map.entry(74, 0.0069),
+        Map.entry(75, 0.0070),
+        Map.entry(76, 0.0071),
+        Map.entry(77, 0.0072),
+        Map.entry(78, 0.0073),
+        Map.entry(79, 0.0074),
+        Map.entry(80, 0.0075)
+    );
+
     public static final int MIN_AGE = 49;
     public static final int MAX_AGE = 80;
 
@@ -67,5 +107,21 @@ public final class AnnuityRateTable {
                 "Age " + age + " is outside the supported annuity range (" + MIN_AGE + "–" + MAX_AGE + ")");
         }
         return isJoint ? row[1] : row[0];
+    }
+
+    /**
+     * Returns the per-year deferral bonus rate for the given purchase age.
+     *
+     * @param age purchaser's age at annuity purchase (49–80)
+     * @return annual increase rate as a decimal (e.g. 0.006 = 0.60%)
+     * @throws IllegalArgumentException if age is outside the supported range
+     */
+    public static double lookupAnnualIncreasePct(int age) {
+        Double pct = ANNUAL_INCREASE.get(age);
+        if (pct == null) {
+            throw new IllegalArgumentException(
+                "Age " + age + " is outside the supported annuity range (" + MIN_AGE + "–" + MAX_AGE + ")");
+        }
+        return pct;
     }
 }

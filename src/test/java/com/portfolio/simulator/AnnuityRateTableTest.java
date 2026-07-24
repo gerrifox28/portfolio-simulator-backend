@@ -91,4 +91,37 @@ class AnnuityRateTableTest {
         assertDoesNotThrow(() -> AnnuityRateTable.lookup(AnnuityRateTable.MIN_AGE, true));
         assertDoesNotThrow(() -> AnnuityRateTable.lookup(AnnuityRateTable.MAX_AGE, true));
     }
+
+    // ── Annual Increase % (deferral bonus rate) ────────────────────────────────
+
+    @ParameterizedTest(name = "Age {0} annual increase = {1}")
+    @CsvSource({
+        "49, 0.0045",
+        "58, 0.0053",
+        "65, 0.0060",
+        "72, 0.0067",
+        "80, 0.0075",
+    })
+    void annualIncreasePct_matchesSpreadsheet(int age, double expected) {
+        assertEquals(expected, AnnuityRateTable.lookupAnnualIncreasePct(age), 0.0001,
+            "Annual increase % for age " + age + " should match spreadsheet");
+    }
+
+    @Test
+    void annualIncreasePct_increasesMonotonicallyWithAge() {
+        for (int age = AnnuityRateTable.MIN_AGE + 1; age <= AnnuityRateTable.MAX_AGE; age++) {
+            double prev = AnnuityRateTable.lookupAnnualIncreasePct(age - 1);
+            double current = AnnuityRateTable.lookupAnnualIncreasePct(age);
+            assertTrue(current >= prev,
+                "Annual increase % at age " + age + " should be >= rate at age " + (age - 1));
+        }
+    }
+
+    @Test
+    void annualIncreasePct_ageOutOfRange_throwsIllegalArgument() {
+        assertThrows(IllegalArgumentException.class,
+            () -> AnnuityRateTable.lookupAnnualIncreasePct(AnnuityRateTable.MIN_AGE - 1));
+        assertThrows(IllegalArgumentException.class,
+            () -> AnnuityRateTable.lookupAnnualIncreasePct(AnnuityRateTable.MAX_AGE + 1));
+    }
 }

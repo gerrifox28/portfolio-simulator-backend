@@ -685,7 +685,14 @@ public class SimulatorService {
     // -------------------------------------------------------------------------
 
     public AnnuityCompareResponse simulateAllCompare(AnnuityCompareRequest req) {
-        double annuityRate          = AnnuityRateTable.lookup(req.getAge(), req.isJoint());
+        double baseAnnuityRate = AnnuityRateTable.lookup(req.getAge(), req.isJoint());
+
+        // Deferral bonus: reward waiting to start income past the purchase year (year 1).
+        // Added once per full year of deferral, not compounded.
+        int deferralYears = req.getIncomeStartYear() - 1;
+        double annualIncreasePct = AnnuityRateTable.lookupAnnualIncreasePct(req.getAge());
+        double annuityRate = baseAnnuityRate + (annualIncreasePct * deferralYears);
+
         double annuityPurchaseAmt   = req.getStartingNestEgg() * req.getAnnuityPercentage();
         double initialAnnuityIncome = annuityPurchaseAmt * annuityRate;
 

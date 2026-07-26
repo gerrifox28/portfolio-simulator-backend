@@ -477,8 +477,9 @@ class SimulatorServiceTest {
 
     @Test
     void annuityCompare_deferredIncomeStart_boostsAnnuityRate() {
-        // Income Start Year 7 = 6 years of deferral past purchase (year 1).
-        // Boost = Annual Increase % (age 65) × 6 years, added once (not compounded).
+        // Income Start Year 7 = 6 years of deferral past purchase (year 1), so the
+        // base rate uses the AGE AT ANNUITIZATION (65 + 6 = 71), and the deferral
+        // bonus is the Annual Increase % at the current age (65) times 6 years, flat.
         AnnuityCompareRequest req = new AnnuityCompareRequest();
         req.setAge(65);
         req.setJoint(false);
@@ -486,10 +487,32 @@ class SimulatorServiceTest {
 
         AnnuityCompareResponse resp = service.simulateAllCompare(req);
 
-        double expectedRate = AnnuityRateTable.lookup(65, false)
+        double expectedRate = AnnuityRateTable.lookup(71, false)
             + AnnuityRateTable.lookupAnnualIncreasePct(65) * 6;
         assertEquals(expectedRate, resp.getAnnuityRate(), 0.0001,
-            "Deferred annuity rate should equal base rate + (annual increase % × deferral years)");
+            "Deferred annuity rate should use the age-at-annuitization base rate plus (current-age increase % × deferral years)");
+    }
+
+    @Test
+    void annuityCompare_baseRateUsesAnnuitizationAge_notCurrentAge() {
+        // Current age 60, deferring 10 years (Income Start Year 11) -> annuitization age 70.
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(60);
+        req.setJoint(false);
+        req.setIncomeStartYear(11);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        double expectedRate = AnnuityRateTable.lookup(70, false)
+            + AnnuityRateTable.lookupAnnualIncreasePct(60) * 10;
+        assertEquals(expectedRate, resp.getAnnuityRate(), 0.0001,
+            "Base rate must come from the annuitization age (70); increase % must be looked up at the current age (60)");
+
+        // Confirm the base rate isn't coming from the current age instead.
+        double wrongRate_baseAtCurrentAge = AnnuityRateTable.lookup(60, false)
+            + AnnuityRateTable.lookupAnnualIncreasePct(60) * 10;
+        assertNotEquals(wrongRate_baseAtCurrentAge, resp.getAnnuityRate(), 0.0001,
+            "Must not use the current age's rate for the base payout rate");
     }
 
     @Test

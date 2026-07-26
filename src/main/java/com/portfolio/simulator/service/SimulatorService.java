@@ -693,12 +693,17 @@ public class SimulatorService {
     // -------------------------------------------------------------------------
 
     public AnnuityCompareResponse simulateAllCompare(AnnuityCompareRequest req) {
-        double baseAnnuityRate = AnnuityRateTable.lookup(req.getAge(), req.isJoint());
-
-        // Deferral bonus: reward waiting to start income past the purchase year (year 1).
-        // Added once per full year of deferral, not compounded.
+        // The base payout rate is looked up at the AGE AT ANNUITIZATION (current age +
+        // years of deferral) — not the current/purchase age. The deferral bonus is the
+        // Annual Increase % at the current age (the youngest annuitant's actual age
+        // today), multiplied flatly by the number of deferral years — not compounded,
+        // and not re-looked-up at each intervening age.
+        int currentAge = req.getAge();
         int deferralYears = req.getIncomeStartYear() - 1;
-        double annualIncreasePct = AnnuityRateTable.lookupAnnualIncreasePct(req.getAge());
+        int annuityAge = currentAge + deferralYears;
+
+        double baseAnnuityRate = AnnuityRateTable.lookup(annuityAge, req.isJoint());
+        double annualIncreasePct = AnnuityRateTable.lookupAnnualIncreasePct(currentAge);
         double annuityRate = baseAnnuityRate + (annualIncreasePct * deferralYears);
 
         // Principal deferral growth: the annuitized dollar amount compounds annually

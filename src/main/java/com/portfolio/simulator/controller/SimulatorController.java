@@ -132,6 +132,14 @@ public class SimulatorController {
                 "error", String.format("Age must be between %d and %d", AnnuityRateTable.MIN_AGE, AnnuityRateTable.MAX_AGE)
             ));
         }
+        int annuityAge = request.getAge() + (request.getIncomeStartYear() - 1);
+        if (annuityAge < AnnuityRateTable.MIN_AGE || annuityAge > AnnuityRateTable.MAX_AGE) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", String.format(
+                    "Age at annuitization (%d, based on current age + deferral years) must be between %d and %d — reduce the Income Start Year deferral.",
+                    annuityAge, AnnuityRateTable.MIN_AGE, AnnuityRateTable.MAX_AGE)
+            ));
+        }
         AnnuityCompareResponse response = simulatorService.simulateAllCompare(request);
         return ResponseEntity.ok(response);
     }

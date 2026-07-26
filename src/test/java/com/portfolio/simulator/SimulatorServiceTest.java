@@ -1160,6 +1160,65 @@ class SimulatorServiceTest {
             "Withdrawal must unfreeze and grow once TPA's ratio clears the threshold");
     }
 
+    // -------------------------------------------------------------------------
+    // Annuity Bal (deferral accumulation value)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void annuityBalance_compoundsDuringDeferral_thenDropsToZero() {
+        SimulationRequest req = buildAnnuityRequest(20_000.0);
+        req.setIncomeStartYear(7);
+        req.setAnnuityPurchaseAmount(300_000.0);
+        req.setDeferralGrowthRate(0.05);
+
+        List<YearResult> results = service.simulate(req);
+
+        // Years 1-6 (index 0-5): balance compounds annually, seq=1 is the unwrapped purchase amount.
+        for (int i = 0; i < 6; i++) {
+            int seq = i + 1;
+            double expected = 300_000.0 * Math.pow(1.05, seq - 1);
+            assertEquals(expected, results.get(i).getAnnuityBalance(), 0.01,
+                "Annuity Bal should compound at the deferral growth rate in year " + seq);
+        }
+
+        // Year 7 onward (index 6+): income has started, balance must be exactly 0.
+        for (int i = 6; i < 10; i++) {
+            assertEquals(0.0, results.get(i).getAnnuityBalance(), 0.01,
+                "Annuity Bal must be 0 once income starts (year " + (i + 1) + ")");
+        }
+    }
+
+    @Test
+    void annuityBalance_noDeferral_alwaysZero() {
+        SimulationRequest req = buildAnnuityRequest(20_000.0);
+        req.setIncomeStartYear(1);
+        req.setAnnuityPurchaseAmount(300_000.0);
+        req.setDeferralGrowthRate(0.05);
+
+        List<YearResult> results = service.simulate(req);
+
+        for (YearResult r : results) {
+            assertEquals(0.0, r.getAnnuityBalance(), 0.01,
+                "With no deferral (Income Start Year 1), Annuity Bal should always be 0");
+        }
+    }
+
+    @Test
+    void annuityBalance_noAnnuity_staysZero() {
+        SimulationRequest req = new SimulationRequest();
+        req.setIncomeStartYear(7);
+        req.setAnnuityPurchaseAmount(300_000.0);
+        req.setDeferralGrowthRate(0.05);
+        // No annuityInitialIncome set -> hasAnnuity is false
+
+        List<YearResult> results = service.simulate(req);
+
+        for (YearResult r : results) {
+            assertEquals(0.0, r.getAnnuityBalance(), 0.01,
+                "Non-annuity simulations should never show a nonzero Annuity Bal");
+        }
+    }
+
     private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {
         SimulationRequest req = new SimulationRequest();
         req.setStartYear(1951);

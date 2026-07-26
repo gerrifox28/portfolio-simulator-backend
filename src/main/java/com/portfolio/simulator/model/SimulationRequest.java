@@ -70,6 +70,20 @@ public class SimulationRequest {
      */
     private double annuityCap = 0.03;
 
+    /**
+     * Dollar amount used to purchase the annuity, before deferral growth (e.g.
+     * nestEgg × annuityPercentage). Only used to display the "Annuity Bal" column's
+     * accumulation value during the deferral period — never affects Withdrawal or
+     * Begin/End Balance math.
+     */
+    private double annuityPurchaseAmount = 0.0;
+
+    /**
+     * Annual growth rate applied to annuityPurchaseAmount during the deferral period
+     * (compounded), matching AnnuityCompareRequest.deferralGrowthRate.
+     */
+    private double deferralGrowthRate = 0.0;
+
     // --- Getters & Setters ---
 
     public int getStartYear() { return startYear; }
@@ -116,6 +130,12 @@ public class SimulationRequest {
 
     public double getAnnuityCap() { return annuityCap; }
     public void setAnnuityCap(double annuityCap) { this.annuityCap = annuityCap; }
+
+    public double getAnnuityPurchaseAmount() { return annuityPurchaseAmount; }
+    public void setAnnuityPurchaseAmount(double annuityPurchaseAmount) { this.annuityPurchaseAmount = annuityPurchaseAmount; }
+
+    public double getDeferralGrowthRate() { return deferralGrowthRate; }
+    public void setDeferralGrowthRate(double deferralGrowthRate) { this.deferralGrowthRate = deferralGrowthRate; }
 
     /** Number of years to simulate — used for TPA table lookups. */
     private int yearCount = 30;

@@ -240,6 +240,14 @@ public class SimulatorService {
             double incomeFlow = netIncomeFlow(seq, req.getCashFlows(), flowMults);
             r.setIncomeApplied(incomeFlow);
 
+            if (hasAnnuity) {
+                // Accumulation value during deferral, compounding at the deferral growth
+                // rate; drops to 0 once annuitized income begins.
+                r.setAnnuityBalance(seq < incomeStart
+                    ? req.getAnnuityPurchaseAmount() * Math.pow(1.0 + req.getDeferralGrowthRate(), seq - 1)
+                    : 0.0);
+            }
+
             if (seq < incomeStart) {
                 r.setAnnualWithdrawal(0.0);
                 r.setTotalIncome(incomeFlow);

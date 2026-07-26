@@ -36,6 +36,13 @@ public class YearResult {
     /** Annuity payment received this year (0 for non-annuity simulations) */
     private double annuityPayment;
 
+    /**
+     * Accumulation value of the annuitized amount during the deferral period, compounding
+     * at the deferral growth rate. Drops to 0 once income starts (the money becomes an
+     * income stream, not a balance) or for non-annuity simulations.
+     */
+    private double annuityBalance;
+
     /** Inflation adjustment % applied to annuity this year, subject to cap (0 for year 1 and non-annuity) */
     private double inflationAdjPct;
 
@@ -79,6 +86,9 @@ public class YearResult {
 
     public double getAnnuityPayment() { return annuityPayment; }
     public void setAnnuityPayment(double annuityPayment) { this.annuityPayment = annuityPayment; }
+
+    public double getAnnuityBalance() { return annuityBalance; }
+    public void setAnnuityBalance(double annuityBalance) { this.annuityBalance = annuityBalance; }
 
     public double getInflationAdjPct() { return inflationAdjPct; }
     public void setInflationAdjPct(double inflationAdjPct) { this.inflationAdjPct = inflationAdjPct; }

@@ -693,8 +693,12 @@ public class SimulatorService {
         double annualIncreasePct = AnnuityRateTable.lookupAnnualIncreasePct(req.getAge());
         double annuityRate = baseAnnuityRate + (annualIncreasePct * deferralYears);
 
+        // Principal deferral growth: the annuitized dollar amount compounds annually
+        // during the deferral period (like a real annuity's accumulation/roll-up rate)
+        // before the (already-boosted) payout rate is applied.
         double annuityPurchaseAmt   = req.getStartingNestEgg() * req.getAnnuityPercentage();
-        double initialAnnuityIncome = annuityPurchaseAmt * annuityRate;
+        double grownPurchaseAmt     = annuityPurchaseAmt * Math.pow(1.0 + req.getDeferralGrowthRate(), deferralYears);
+        double initialAnnuityIncome = grownPurchaseAmt * annuityRate;
 
         // Without annuity: standard run using full nest egg
         AllScenariosResponse withoutAnnuity = simulateAll(req.toAllScenariosRequest());
@@ -716,7 +720,10 @@ public class SimulatorService {
         // Annuity configuration
         double annuityPct           = req.getAnnuityPercentage();
         double portfolioNestEgg     = req.getStartingNestEgg() * (1.0 - annuityPct);
-        double initialAnnuityIncome = req.getStartingNestEgg() * annuityPct * annuityRate;
+        int deferralYears           = req.getIncomeStartYear() - 1;
+        double annuityPurchaseAmt   = req.getStartingNestEgg() * annuityPct;
+        double grownPurchaseAmt     = annuityPurchaseAmt * Math.pow(1.0 + req.getDeferralGrowthRate(), deferralYears);
+        double initialAnnuityIncome = grownPurchaseAmt * annuityRate;
 
         // Build per-scenario SimulationRequest with the reduced portfolio nest egg
         SimulationRequest portfolioReq = new SimulationRequest();

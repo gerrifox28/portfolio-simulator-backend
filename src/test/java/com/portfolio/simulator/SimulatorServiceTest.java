@@ -524,6 +524,85 @@ class SimulatorServiceTest {
     }
 
     @Test
+    void annuityCompare_deferralGrowthRate_compoundsThePurchaseAmount() {
+        // Income Start Year 7 = 6 years of deferral. Purchase amount should compound
+        // annually at deferralGrowthRate before the payout rate is applied.
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(65);
+        req.setJoint(false);
+        req.setIncomeStartYear(7);
+        req.setDeferralGrowthRate(0.05);
+        req.setStartingNestEgg(1_000_000.0);
+        req.setAnnuityPercentage(0.30);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        double annuityRate = resp.getAnnuityRate();
+        double purchaseAmt = 1_000_000.0 * 0.30;
+        double grownPurchaseAmt = purchaseAmt * Math.pow(1.05, 6);
+        double expectedIncome = grownPurchaseAmt * annuityRate;
+
+        assertEquals(expectedIncome, resp.getInitialAnnuityIncome(), 1.0,
+            "Initial annuity income should reflect the compounded (grown) purchase amount");
+    }
+
+    @Test
+    void annuityCompare_zeroDeferralGrowthRate_noGrowthApplied() {
+        AnnuityCompareRequest req = new AnnuityCompareRequest();
+        req.setAge(65);
+        req.setJoint(false);
+        req.setIncomeStartYear(7);
+        req.setDeferralGrowthRate(0.0);
+        req.setStartingNestEgg(1_000_000.0);
+        req.setAnnuityPercentage(0.30);
+
+        AnnuityCompareResponse resp = service.simulateAllCompare(req);
+
+        double expectedIncome = (1_000_000.0 * 0.30) * resp.getAnnuityRate();
+        assertEquals(expectedIncome, resp.getInitialAnnuityIncome(), 1.0,
+            "Zero deferral growth rate should leave the purchase amount unchanged");
+    }
+
+    @Test
+    void annuityCompare_higherDeferralGrowthRate_higherInitialIncome() {
+        AnnuityCompareRequest lowGrowth = new AnnuityCompareRequest();
+        lowGrowth.setAge(65);
+        lowGrowth.setIncomeStartYear(7);
+        lowGrowth.setDeferralGrowthRate(0.01);
+
+        AnnuityCompareRequest highGrowth = new AnnuityCompareRequest();
+        highGrowth.setAge(65);
+        highGrowth.setIncomeStartYear(7);
+        highGrowth.setDeferralGrowthRate(0.05);
+
+        double lowIncome  = service.simulateAllCompare(lowGrowth).getInitialAnnuityIncome();
+        double highIncome = service.simulateAllCompare(highGrowth).getInitialAnnuityIncome();
+
+        assertTrue(highIncome > lowIncome,
+            "A higher deferral growth rate should produce a larger initial annuity income");
+    }
+
+    @Test
+    void annuityCompare_noDeferralYears_growthRateHasNoEffect() {
+        // Income Start Year 1 = 0 deferral years, so (1+rate)^0 = 1 regardless of rate.
+        AnnuityCompareRequest lowGrowth = new AnnuityCompareRequest();
+        lowGrowth.setAge(65);
+        lowGrowth.setIncomeStartYear(1);
+        lowGrowth.setDeferralGrowthRate(0.01);
+
+        AnnuityCompareRequest highGrowth = new AnnuityCompareRequest();
+        highGrowth.setAge(65);
+        highGrowth.setIncomeStartYear(1);
+        highGrowth.setDeferralGrowthRate(0.05);
+
+        double lowIncome  = service.simulateAllCompare(lowGrowth).getInitialAnnuityIncome();
+        double highIncome = service.simulateAllCompare(highGrowth).getInitialAnnuityIncome();
+
+        assertEquals(lowIncome, highIncome, 0.01,
+            "With no deferral years, the growth rate should have no effect on initial income");
+    }
+
+    @Test
     void annuityCompare_zeroPctAnnuity_withAnnuityMatchesWithoutAnnuity() {
         // 0% annuitized means no annuity income at all — both legs should be identical
         AnnuityCompareRequest req = new AnnuityCompareRequest();

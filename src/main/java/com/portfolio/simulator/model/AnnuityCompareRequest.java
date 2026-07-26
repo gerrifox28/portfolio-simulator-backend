@@ -54,6 +54,14 @@ public class AnnuityCompareRequest {
     @DecimalMin("0.0") @DecimalMax("1.0")
     private double annuityCap = 0.03;
 
+    /**
+     * Annual growth rate applied to the annuitized dollar amount during the deferral
+     * period (purchase year 1 through Income Start Year), compounded annually. Models
+     * a deferred annuity's accumulation/roll-up rate, separate from the payout rate.
+     */
+    @DecimalMin("0.0") @DecimalMax("1.0")
+    private double deferralGrowthRate = 0.03;
+
     private boolean manualAllocations = false;
     @JsonProperty("mSp500")     @DecimalMin("0.0") @DecimalMax("1.0") private double mSp500     = 0.0;
     @JsonProperty("mCrsp1_10")  @DecimalMin("0.0") @DecimalMax("1.0") private double mCrsp1_10  = 0.0;
@@ -95,6 +103,9 @@ public class AnnuityCompareRequest {
 
     public double getAnnuityCap() { return annuityCap; }
     public void setAnnuityCap(double v) { this.annuityCap = v; }
+
+    public double getDeferralGrowthRate() { return deferralGrowthRate; }
+    public void setDeferralGrowthRate(double v) { this.deferralGrowthRate = v; }
 
     public boolean isManualAllocations() { return manualAllocations; }
     public void setManualAllocations(boolean v) { this.manualAllocations = v; }

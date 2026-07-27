@@ -693,16 +693,13 @@ public class SimulatorService {
     // -------------------------------------------------------------------------
 
     public AnnuityCompareResponse simulateAllCompare(AnnuityCompareRequest req) {
-        // The base payout rate is looked up at the AGE AT ANNUITIZATION (current age +
-        // years of deferral) — not the current/purchase age. The deferral bonus is the
-        // Annual Increase % at the current age (the youngest annuitant's actual age
-        // today), multiplied flatly by the number of deferral years — not compounded,
-        // and not re-looked-up at each intervening age.
+        // Base payout rate is looked up at the CURRENT age (the youngest annuitant's
+        // actual age today). Deferral bonus: Annual Increase % at that same current
+        // age, multiplied flatly by the number of deferral years — not compounded.
         int currentAge = req.getAge();
         int deferralYears = req.getIncomeStartYear() - 1;
-        int annuityAge = currentAge + deferralYears;
 
-        double baseAnnuityRate = AnnuityRateTable.lookup(annuityAge, req.isJoint());
+        double baseAnnuityRate = AnnuityRateTable.lookup(currentAge, req.isJoint());
         double annualIncreasePct = AnnuityRateTable.lookupAnnualIncreasePct(currentAge);
         double annuityRate = baseAnnuityRate + (annualIncreasePct * deferralYears);
 

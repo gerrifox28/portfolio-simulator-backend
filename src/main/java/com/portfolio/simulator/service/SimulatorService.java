@@ -245,8 +245,11 @@ public class SimulatorService {
 
             if (hasAnnuity) {
                 // Accumulation value during deferral, compounding at the deferral growth
-                // rate; drops to 0 once annuitized income begins.
-                r.setAnnuityBalance(seq < incomeStart
+                // rate. Still shown in the Income Start Year itself (the balance right
+                // before it converts to an income stream — lets the balance × rate math
+                // be verified against that same year's Annuity Pmt); drops to 0 every
+                // year after that, once it's paying out rather than accumulating.
+                r.setAnnuityBalance(seq <= incomeStart
                     ? req.getAnnuityPurchaseAmount() * Math.pow(1.0 + req.getDeferralGrowthRate(), seq - 1)
                     : 0.0);
             }

@@ -1190,7 +1190,7 @@ class SimulatorServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void annuityBalance_compoundsDuringDeferral_thenDropsToZero() {
+    void annuityBalance_compoundsDuringDeferral_stillShownAtIncomeStartYear_thenDropsToZero() {
         SimulationRequest req = buildAnnuityRequest(20_000.0);
         req.setIncomeStartYear(7);
         req.setAnnuityPurchaseAmount(300_000.0);
@@ -1198,23 +1198,25 @@ class SimulatorServiceTest {
 
         List<YearResult> results = service.simulate(req);
 
-        // Years 1-6 (index 0-5): balance compounds annually, seq=1 is the unwrapped purchase amount.
-        for (int i = 0; i < 6; i++) {
+        // Years 1-7 (index 0-6): balance compounds annually, including the Income Start
+        // Year itself — this is the accumulation value right before it converts to an
+        // income stream, letting balance × rate be checked against that year's Annuity Pmt.
+        for (int i = 0; i < 7; i++) {
             int seq = i + 1;
             double expected = 300_000.0 * Math.pow(1.05, seq - 1);
             assertEquals(expected, results.get(i).getAnnuityBalance(), 0.01,
-                "Annuity Bal should compound at the deferral growth rate in year " + seq);
+                "Annuity Bal should compound at the deferral growth rate through the Income Start Year, seq=" + seq);
         }
 
-        // Year 7 onward (index 6+): income has started, balance must be exactly 0.
-        for (int i = 6; i < 10; i++) {
+        // Year 8 onward (index 7+): now actually paying out, balance must be exactly 0.
+        for (int i = 7; i < 10; i++) {
             assertEquals(0.0, results.get(i).getAnnuityBalance(), 0.01,
-                "Annuity Bal must be 0 once income starts (year " + (i + 1) + ")");
+                "Annuity Bal must be 0 the year after income starts (year " + (i + 1) + ")");
         }
     }
 
     @Test
-    void annuityBalance_noDeferral_alwaysZero() {
+    void annuityBalance_noDeferral_showsPurchaseAmountInYear1_thenZero() {
         SimulationRequest req = buildAnnuityRequest(20_000.0);
         req.setIncomeStartYear(1);
         req.setAnnuityPurchaseAmount(300_000.0);
@@ -1222,9 +1224,11 @@ class SimulatorServiceTest {
 
         List<YearResult> results = service.simulate(req);
 
-        for (YearResult r : results) {
-            assertEquals(0.0, r.getAnnuityBalance(), 0.01,
-                "With no deferral (Income Start Year 1), Annuity Bal should always be 0");
+        assertEquals(300_000.0, results.get(0).getAnnuityBalance(), 0.01,
+            "With no deferral, Year 1 (the Income Start Year) still shows the purchase amount");
+        for (int i = 1; i < results.size(); i++) {
+            assertEquals(0.0, results.get(i).getAnnuityBalance(), 0.01,
+                "Annuity Bal must be 0 in every year after income starts");
         }
     }
 

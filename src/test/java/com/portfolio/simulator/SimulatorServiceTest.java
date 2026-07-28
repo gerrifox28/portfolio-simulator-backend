@@ -770,6 +770,30 @@ class SimulatorServiceTest {
         }
     }
 
+    @Test
+    void annuity_firstPaymentAtIncomeStartYear_hasNoColaAdjustmentYet() {
+        // Deferred annuity (income starts at year 5, not year 1): the FIRST payment
+        // must be the flat base amount, unadjusted — COLA only starts growing it from
+        // the following year. Before the fix, this first payment silently already
+        // included one year of COLA growth based on the prior year's real CPI.
+        SimulationRequest req = buildAnnuityRequest(20_000.0);
+        req.setIncomeStartYear(5);
+
+        List<YearResult> results = service.simulate(req);
+
+        YearResult firstPaymentYear = results.get(4); // seq 5 (index 4)
+        assertEquals(20_000.0, firstPaymentYear.getAnnuityPayment(), 0.01,
+            "The first annuity payment (income start year) must equal the flat initial amount, with no COLA growth applied yet");
+        assertEquals(0.0, firstPaymentYear.getInflationAdjPct(), 0.0001,
+            "Inf Adj % must be exactly 0 in the first payment year");
+
+        // The SECOND payment year should now grow, based on the prior (first payment)
+        // year's actual CPI, capped at the annuity cap.
+        YearResult secondPaymentYear = results.get(5); // seq 6 (index 5)
+        assertTrue(secondPaymentYear.getAnnuityPayment() >= 20_000.0,
+            "The second annuity payment should be >= the flat base (COLA never reduces it, per Math.max(0, ...))");
+    }
+
     // -------------------------------------------------------------------------
     // Manual cash flow "Income" classification
     // -------------------------------------------------------------------------

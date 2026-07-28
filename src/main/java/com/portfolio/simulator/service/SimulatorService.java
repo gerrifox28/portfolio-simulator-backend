@@ -140,9 +140,12 @@ public class SimulatorService {
                 if (hasAnnuity) {
                     double cpi = prev.getInflation();
 
-                    // Annuity engine — only compound COLA when income has started
+                    // Annuity engine — COLA only compounds from the year AFTER income
+                    // starts. The first payment (seq == incomeStartYear) must be the flat
+                    // base amount, unadjusted — otherwise it silently includes a year of
+                    // growth before the client has even received a single payment.
                     double adjPct = 0.0;
-                    if (seq >= req.getIncomeStartYear()) {
+                    if (seq > req.getIncomeStartYear()) {
                         adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
                         annuityIncome = annuityIncome * (1.0 + adjPct);
                     }
@@ -870,9 +873,10 @@ public class SimulatorService {
 
                 double cpi = prev.getInflation();
 
-                // Annuity engine — only compound COLA when income has started
+                // Annuity engine — COLA only compounds from the year AFTER income
+                // starts; the first payment must be the flat, unadjusted base amount.
                 double adjPct = 0.0;
-                if (seq >= req.getIncomeStartYear()) {
+                if (seq > req.getIncomeStartYear()) {
                     adjPct = Math.max(0.0, Math.min(cpi, req.getAnnuityCap()));
                     annuityIncome = annuityIncome * (1.0 + adjPct);
                 }

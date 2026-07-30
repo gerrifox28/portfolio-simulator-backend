@@ -35,6 +35,9 @@ public class AllScenariosResponse {
     /** Average annual total income (withdrawal + annuity) across all scenarios × all years (failed years = $0) */
     private double averageAnnualTotalIncome;
 
+    /** Average total income at exactly the Income Start Year, across all scenarios */
+    private double averageIncomeAtStartYear;
+
     /** The starting year that produced the highest final balance */
     private int bestStartYear;
 
@@ -72,6 +75,9 @@ public class AllScenariosResponse {
 
     public double getAverageAnnualTotalIncome() { return averageAnnualTotalIncome; }
     public void setAverageAnnualTotalIncome(double averageAnnualTotalIncome) { this.averageAnnualTotalIncome = averageAnnualTotalIncome; }
+
+    public double getAverageIncomeAtStartYear() { return averageIncomeAtStartYear; }
+    public void setAverageIncomeAtStartYear(double averageIncomeAtStartYear) { this.averageIncomeAtStartYear = averageIncomeAtStartYear; }
 
     public int getBestStartYear() { return bestStartYear; }
     public void setBestStartYear(int bestStartYear) { this.bestStartYear = bestStartYear; }

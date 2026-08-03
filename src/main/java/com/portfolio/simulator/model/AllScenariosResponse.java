@@ -26,6 +26,9 @@ public class AllScenariosResponse {
     /** Highest remaining balance after 40 years across all scenarios */
     private double highestEndingBalance;
 
+    /** Lowest remaining balance after 40 years across all scenarios (a failed scenario contributes $0) */
+    private double lowestEndingBalance;
+
     /** Average remaining balance after 40 years (exhausted = 0) */
     private double averageEndingBalance;
 
@@ -66,6 +69,9 @@ public class AllScenariosResponse {
 
     public double getHighestEndingBalance() { return highestEndingBalance; }
     public void setHighestEndingBalance(double highestEndingBalance) { this.highestEndingBalance = highestEndingBalance; }
+
+    public double getLowestEndingBalance() { return lowestEndingBalance; }
+    public void setLowestEndingBalance(double lowestEndingBalance) { this.lowestEndingBalance = lowestEndingBalance; }
 
     public double getAverageEndingBalance() { return averageEndingBalance; }
     public void setAverageEndingBalance(double averageFinalBalance) { this.averageEndingBalance = averageFinalBalance; }

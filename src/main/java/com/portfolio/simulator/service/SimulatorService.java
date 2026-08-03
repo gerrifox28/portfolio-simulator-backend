@@ -393,6 +393,7 @@ public class SimulatorService {
         resp.setFailureRate(Math.round((failureCount * 100.0 / scenarios.size()) * 10.0) / 10.0);
         resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
         resp.setHighestEndingBalance(highestEndingBalance);
+        resp.setLowestEndingBalance(worstBalance == Double.MAX_VALUE ? 0 : worstBalance);
         resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
         resp.setAverageAnnualWithdrawal(totalYearSlots > 0 ? totalWithdrawalSum / totalYearSlots : 0);
         resp.setAverageAnnualTotalIncome(totalYearSlots > 0 ? totalTotalIncomeSum / totalYearSlots : 0);
@@ -825,6 +826,7 @@ public class SimulatorService {
         resp.setFailureRate(Math.round((failureCount * 100.0 / scenarios.size()) * 10.0) / 10.0);
         resp.setEarliestFailureYears(earliestFailureYears == Integer.MAX_VALUE ? 0 : earliestFailureYears);
         resp.setHighestEndingBalance(highestEndingBalance);
+        resp.setLowestEndingBalance(worstBalance == Double.MAX_VALUE ? 0 : worstBalance);
         resp.setAverageEndingBalance(survivorCount > 0 ? totalEndingBalance / survivorCount : 0);
         resp.setAverageAnnualWithdrawal(totalYearSlots > 0 ? totalWithdrawalSum / totalYearSlots : 0);
         resp.setAverageAnnualTotalIncome(totalYearSlots > 0 ? totalTotalIncomeSum / totalYearSlots : 0);

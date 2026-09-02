@@ -1185,6 +1185,62 @@ class SimulatorServiceTest {
             "Withdrawal must unfreeze and grow once TPA's ratio clears the threshold");
     }
 
+    /**
+     * Regression test for a real user-reported bug: in TPA mode, a manual Income entry
+     * (e.g. Social Security) starting in a year OTHER than the global Income Start Year
+     * field was never subtracted from Withdrawal at all — the "don't double-subtract
+     * Income" logic only recognized the global field as the moment income begins. Here
+     * Income Start Year is 4 but the Social Security entry starts at year 7 (a totally
+     * separate, unaligned year), which must still trigger a one-time Withdrawal drop.
+     */
+    @Test
+    void tpaMode_incomeEntryStartingOffGlobalIncomeStartYear_stillReducesWithdrawal() {
+        SimulationRequest req = new SimulationRequest();
+        req.setStartYear(1970);
+        req.setStartingNestEgg(1_000_000.0);
+        req.setInitialWithdrawal(50_000.0);
+        req.setExpensesAndMgmtFee(0.012);
+        req.setWithdrawalMode("tpa");
+        req.setYearCount(40);
+        req.setIncomeStartYear(4); // deliberately does NOT match the Income entry's start year
+        req.setSp500(0.0);
+        req.setCrsp1_10(0.25);
+        req.setCrsp6_10(0.10);
+        req.setFfIntl(0.10);
+        req.setFfEmgMkts(0.05);
+        req.setDjUsReit(0.05);
+        req.setOneMonth(0.05);
+        req.setFiveYearUS(0.40);
+
+        CashFlow ss = new CashFlow();
+        ss.setId("1"); ss.setDescription("SS"); ss.setAmount(25_800.0);
+        ss.setAllYears(false); ss.setYearStart(7); ss.setYearEnd(40);
+        ss.setInflationAdj("half"); ss.setType("income");
+        req.setCashFlows(List.of(ss));
+
+        List<YearResult> results = service.simulate(req);
+
+        YearResult year6 = results.get(5);  // last year before SS starts
+        YearResult year7 = results.get(6);  // SS starts
+        YearResult year8 = results.get(7);  // SS continues, grown by inflation
+
+        assertEquals(0.0, year6.getIncomeApplied(), 0.01, "No Income applied yet in year 6");
+        assertEquals(25_800.0, year7.getIncomeApplied(), 0.01, "Full SS amount applied in year 7");
+
+        assertEquals(year6.getAnnualWithdrawal() - 25_800.0, year7.getAnnualWithdrawal(), 0.01,
+            "Withdrawal must drop by the full Income amount the year it starts, even though " +
+            "that year doesn't match the global Income Start Year field");
+        assertEquals(year6.getTotalIncome(), year7.getTotalIncome(), 0.01,
+            "Total Income must stay flat across the Income entry's start year (one-time offset)");
+
+        // One-time drop only (per product decision): as SS grows with inflation afterward,
+        // Withdrawal is NOT further reduced — both Withdrawal and Total Income keep growing.
+        assertTrue(year8.getAnnualWithdrawal() > year7.getAnnualWithdrawal(),
+            "Withdrawal must keep growing normally in later years, not stay suppressed");
+        assertTrue(year8.getTotalIncome() > year7.getTotalIncome(),
+            "Total Income must grow in later years as Income grows with inflation");
+    }
+
     // -------------------------------------------------------------------------
     // Annuity Bal (deferral accumulation value)
     // -------------------------------------------------------------------------

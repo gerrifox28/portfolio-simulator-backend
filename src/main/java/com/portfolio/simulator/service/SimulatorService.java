@@ -98,6 +98,7 @@ public class SimulatorService {
 
         // Per-entry inflation multipliers — each entry compounds from its own start year.
         Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
+        double[] tpaUnabsorbed = {0.0}; // see tpaNetOfIncome()
 
         // Tracks the inflation-compounded withdrawal from year 1 forward.
         // Used so that when income starts after year 1, the first withdrawal
@@ -282,7 +283,10 @@ public class SimulatorService {
                 double incomeToSubtract = tpaAlreadyNetOfIncome
                     ? netIncomeChange(seq, req.getCashFlows(), flowMults)
                     : incomeFlow;
-                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeToSubtract), r.getPortfolioBeginning());
+                double netWithdrawal = "tpa".equals(req.getWithdrawalMode())
+                    ? tpaNetOfIncome(desiredWithdrawal, incomeToSubtract, tpaUnabsorbed)
+                    : desiredWithdrawal - incomeToSubtract;
+                double finalWithdrawal = Math.min(Math.max(0.0, netWithdrawal), r.getPortfolioBeginning());
                 r.setAnnualWithdrawal(finalWithdrawal);
                 r.setTotalIncome(finalWithdrawal + incomeFlow + (hasAnnuity ? r.getAnnuityPayment() : 0.0));
             }
@@ -506,6 +510,25 @@ public class SimulatorService {
             if (Double.isNaN(amount)) continue;
             net += activeNow ? amount : -amount;
         }
+        return net;
+    }
+
+    /**
+     * TPA only: Withdrawal can't go below $0, so Income beyond the current Withdrawal is
+     * "unabsorbed". Accumulates that excess in {@code unabsorbed[0]} and nets it out of later
+     * add-backs (Income entries ending), so an entry that paid more than the Withdrawal it
+     * replaced doesn't leave Withdrawal permanently higher once it stops.
+     * E.g. $56K Withdrawal, $80K entry starts → $0 (24K unabsorbed); entry ends → add back $56K, not $80K.
+     * Returns desiredWithdrawal minus the adjusted Income, before the $0 / balance clamp.
+     */
+    private double tpaNetOfIncome(double desiredWithdrawal, double incomeToSubtract, double[] unabsorbed) {
+        if (incomeToSubtract < 0) {
+            double offset = Math.min(unabsorbed[0], -incomeToSubtract);
+            incomeToSubtract += offset;
+            unabsorbed[0] -= offset;
+        }
+        double net = desiredWithdrawal - incomeToSubtract;
+        if (net < 0) unabsorbed[0] += -net;
         return net;
     }
 
@@ -892,6 +915,7 @@ public class SimulatorService {
         double runningTargetIncome = targetIncome;
 
         Map<String, double[]> flowMults = initFlowMultipliers(req.getCashFlows());
+        double[] tpaUnabsorbed = {0.0}; // see tpaNetOfIncome()
 
         // Tracks the Desired Income trajectory (withdrawal mode growth + annuity offset),
         // independent of manual Income entries — see simulate() for why.
@@ -990,7 +1014,10 @@ public class SimulatorService {
                 double incomeToSubtract = tpaAlreadyNetOfIncome
                     ? netIncomeChange(seq, req.getCashFlows(), flowMults)
                     : incomeFlow;
-                double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeToSubtract), beginning);
+                double netWithdrawal = "tpa".equals(req.getWithdrawalMode())
+                    ? tpaNetOfIncome(desiredWithdrawal, incomeToSubtract, tpaUnabsorbed)
+                    : desiredWithdrawal - incomeToSubtract;
+                double finalWithdrawal = Math.min(Math.max(0.0, netWithdrawal), beginning);
                 r.setAnnualWithdrawal(finalWithdrawal);
                 r.setTotalIncome(finalWithdrawal + incomeFlow + annuityIncome);
             }

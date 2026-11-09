@@ -1303,6 +1303,42 @@ class SimulatorServiceTest {
         }
     }
 
+    /**
+     * TPA mode: an $80K Income entry starts when Withdrawal is only ~$56K, so Withdrawal
+     * floors at $0 and ~$24K of that Income is unabsorbed. When the entry ends, only the
+     * absorbed part may be added back — Withdrawal returns to ~$56K, not $80K.
+     */
+    @Test
+    void tpaMode_incomeLargerThanWithdrawal_addBackExcludesUnabsorbedExcess() {
+        SimulationRequest req = new SimulationRequest();
+        req.setStartYear(1990);
+        req.setStartingNestEgg(1_000_000.0);
+        req.setInitialWithdrawal(50_000.0);
+        req.setExpensesAndMgmtFee(0.002);
+        req.setWithdrawalMode("tpa");
+        req.setYearCount(20);
+        req.setIncomeStartYear(1);
+
+        CashFlow big = new CashFlow();
+        big.setId("1"); big.setDescription("Big income"); big.setAmount(80_000);
+        big.setAllYears(false); big.setYearStart(5); big.setYearEnd(10);
+        big.setInflationAdj("none"); big.setType("income");
+        req.setCashFlows(List.of(big));
+
+        List<YearResult> results = service.simulate(req);
+
+        double year4Withdrawal = results.get(3).getAnnualWithdrawal();
+        assertTrue(year4Withdrawal < 80_000.0, "Setup: Income must exceed the Withdrawal it replaces");
+        for (int i = 4; i <= 9; i++) {
+            assertEquals(0.0, results.get(i).getAnnualWithdrawal(), 0.01,
+                "Withdrawal floors at $0 while the entry runs (year " + (i + 1) + ")");
+        }
+        // Returns to the year-5 TPA amount (year 4 plus at most one year of CPI growth), not $80K.
+        double year11Withdrawal = results.get(10).getAnnualWithdrawal();
+        assertTrue(year11Withdrawal >= year4Withdrawal && year11Withdrawal <= year4Withdrawal * 1.05,
+            "Year 11 Withdrawal must return to the pre-Income amount, not the full $80K (was " + year11Withdrawal + ")");
+    }
+
     // -------------------------------------------------------------------------
     // Annuity Bal (deferral accumulation value)
     // -------------------------------------------------------------------------

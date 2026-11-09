@@ -60,16 +60,16 @@ class SimulatorServiceTest {
 
     @Test
     void secondYear_endBalanceMatchesSpreadsheet() {
-        // seq=2, year=1930, starting from 1929. Updated for actual FFIntl/REIT/EmgMkts formula.
+        // seq=2, year=1930, starting from 1929. Updated for the revised 1929 return row (2026-05-28).
         List<YearResult> results = service.simulate(defaultRequest);
-        assertEquals(560_746.0, results.get(1).getPortfolioEnd(), 5.0);
+        assertEquals(646_269.0, results.get(1).getPortfolioEnd(), 5.0);
     }
 
     @Test
     void thirdYear_endBalanceMatchesSpreadsheet() {
-        // seq=3, year=1931, starting from 1929. Updated for actual FFIntl/REIT/EmgMkts formula.
+        // seq=3, year=1931, starting from 1929. Updated for the revised 1929 return row (2026-05-28).
         List<YearResult> results = service.simulate(defaultRequest);
-        assertEquals(353_065.0, results.get(2).getPortfolioEnd(), 5.0);
+        assertEquals(410_449.0, results.get(2).getPortfolioEnd(), 5.0);
     }
 
     @Test
@@ -79,7 +79,7 @@ class SimulatorServiceTest {
 
     @Test
     void yearRange_containsExpectedBounds() {
-        assertEquals(1929, service.getMinYear());
+        assertEquals(1926, service.getMinYear());
         assertEquals(2025, service.getMaxYear());
     }
 
@@ -204,7 +204,7 @@ class SimulatorServiceTest {
 
     static Stream<Arguments> exhaustedScenarios() {
         return Stream.of(
-            Arguments.of(1929, 23),
+            Arguments.of(1929, 29), // revised 1929 return row (2026-05-28)
             Arguments.of(1937, 36),
             Arguments.of(1962, 34),
             Arguments.of(1964, 38),

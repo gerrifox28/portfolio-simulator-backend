@@ -9,15 +9,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AnnuityRateTableTest {
 
-    // ── Known spot-checks from Annuity Rates.xlsm ────────────────────────────
+    // ── Known spot-checks from Allianz Annuity Percentages.xlsx (May 2026) ────────────────────────────
 
     @ParameterizedTest(name = "Age {0} single = {1}")
     @CsvSource({
-        "49, 0.0520",
-        "58, 0.0600",
-        "65, 0.0690",
-        "72, 0.0760",
-        "80, 0.0840",
+        "49, 0.0530",
+        "58, 0.0615",
+        "65, 0.0715",
+        "72, 0.0790",
+        "80, 0.0850",
     })
     void singleRate_matchesSpreadsheet(int age, double expected) {
         assertEquals(expected, AnnuityRateTable.lookup(age, false), 0.0001,
@@ -26,11 +26,11 @@ class AnnuityRateTableTest {
 
     @ParameterizedTest(name = "Age {0} joint = {1}")
     @CsvSource({
-        "49, 0.0470",
-        "58, 0.0550",
-        "65, 0.0640",
-        "72, 0.0710",
-        "80, 0.0790",
+        "49, 0.0480",
+        "58, 0.0565",
+        "65, 0.0665",
+        "72, 0.0740",
+        "80, 0.0800",
     })
     void jointRate_matchesSpreadsheet(int age, double expected) {
         assertEquals(expected, AnnuityRateTable.lookup(age, true), 0.0001,

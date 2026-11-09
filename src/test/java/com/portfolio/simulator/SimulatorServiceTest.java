@@ -1304,12 +1304,13 @@ class SimulatorServiceTest {
     }
 
     /**
-     * TPA mode: an $80K Income entry starts when Withdrawal is only ~$56K, so Withdrawal
-     * floors at $0 and ~$24K of that Income is unabsorbed. When the entry ends, only the
-     * absorbed part may be added back — Withdrawal returns to ~$56K, not $80K.
+     * TPA mode: an $80K Income entry starts when Withdrawal is only ~$58K, so Withdrawal
+     * pauses at $0 for years 5-10. When the entry ends, Withdrawal must resume at the paused
+     * amount grown by the intervening years' TPA increases — not $80K, and not the stale
+     * year-5 amount with no inflation growth.
      */
     @Test
-    void tpaMode_incomeLargerThanWithdrawal_addBackExcludesUnabsorbedExcess() {
+    void tpaMode_incomeLargerThanWithdrawal_resumesAtInflationGrownAmount() {
         SimulationRequest req = new SimulationRequest();
         req.setStartYear(1990);
         req.setStartingNestEgg(1_000_000.0);
@@ -1333,10 +1334,13 @@ class SimulatorServiceTest {
             assertEquals(0.0, results.get(i).getAnnualWithdrawal(), 0.01,
                 "Withdrawal floors at $0 while the entry runs (year " + (i + 1) + ")");
         }
-        // Returns to the year-5 TPA amount (year 4 plus at most one year of CPI growth), not $80K.
-        double year11Withdrawal = results.get(10).getAnnualWithdrawal();
-        assertTrue(year11Withdrawal >= year4Withdrawal && year11Withdrawal <= year4Withdrawal * 1.05,
-            "Year 11 Withdrawal must return to the pre-Income amount, not the full $80K (was " + year11Withdrawal + ")");
+        // 1990 start: years 4-10 are 1993-1999, all positive CPI, and the portfolio grows with
+        // no withdrawals, so the TPA ratio allows every increase — Withdrawal compounds with CPI.
+        double expected = year4Withdrawal;
+        for (int i = 3; i <= 9; i++) expected *= (1.0 + results.get(i).getInflation());
+        assertEquals(expected, results.get(10).getAnnualWithdrawal(), 0.01,
+            "Year 11 Withdrawal must resume at the paused amount grown by years 5-11 TPA increases");
+        assertTrue(results.get(10).getAnnualWithdrawal() < 80_000.0, "Must not jump to the full $80K");
     }
 
     // -------------------------------------------------------------------------

@@ -1241,6 +1241,68 @@ class SimulatorServiceTest {
             "Total Income must grow in later years as Income grows with inflation");
     }
 
+    /**
+     * Regression test from a real client scenario: in TPA mode a $300K Income stream ends
+     * after year 4 and a $200K one starts in year 5. TPA used to subtract only the NEW $200K
+     * (ignoring the $300K that stopped), driving Withdrawal to $0 — and since TPA grows from
+     * last year's actual Withdrawal, it then stayed at $0 forever. The year-5 adjustment must
+     * be the net change (+$100K add-back), keeping Total Income level across the switch.
+     */
+    @Test
+    void tpaMode_incomeEntryEnding_addsBackToWithdrawal() {
+        SimulationRequest req = new SimulationRequest();
+        req.setStartYear(1966);
+        req.setStartingNestEgg(2_000_000.0);
+        req.setInitialWithdrawal(525_000.0);
+        req.setExpensesAndMgmtFee(0.002);
+        req.setWithdrawalMode("tpa");
+        req.setYearCount(40);
+        req.setIncomeStartYear(1);
+        req.setSp500(0.0);
+        req.setCrsp1_10(0.20);
+        req.setCrsp6_10(0.15);
+        req.setFfIntl(0.05);
+        req.setFfEmgMkts(0.05);
+        req.setDjUsReit(0.05);
+        req.setOneMonth(0.05);
+        req.setFiveYearUS(0.45);
+
+        CashFlow dowStream = new CashFlow();
+        dowStream.setId("1"); dowStream.setDescription("Dow Stream"); dowStream.setAmount(300_000);
+        dowStream.setAllYears(false); dowStream.setYearStart(1); dowStream.setYearEnd(4);
+        dowStream.setInflationAdj("none"); dowStream.setType("income");
+
+        CashFlow dowEmeritus = new CashFlow();
+        dowEmeritus.setId("2"); dowEmeritus.setDescription("Dow Emeritus"); dowEmeritus.setAmount(200_000);
+        dowEmeritus.setAllYears(false); dowEmeritus.setYearStart(5); dowEmeritus.setYearEnd(24);
+        dowEmeritus.setInflationAdj("none"); dowEmeritus.setType("income");
+
+        CashFlow allianz = new CashFlow();
+        allianz.setId("3"); allianz.setDescription("Allianz Annuity"); allianz.setAmount(71_456);
+        allianz.setAllYears(true);
+        allianz.setInflationAdj("none"); allianz.setType("income");
+
+        CashFlow gfSS = new CashFlow();
+        gfSS.setId("4"); gfSS.setDescription("GF SS"); gfSS.setAmount(19_404);
+        gfSS.setAllYears(false); gfSS.setYearStart(3); gfSS.setYearEnd(36);
+        gfSS.setInflationAdj("half"); gfSS.setType("income");
+
+        req.setCashFlows(List.of(dowStream, dowEmeritus, allianz, gfSS));
+
+        List<YearResult> results = service.simulate(req);
+
+        YearResult year4 = results.get(3);
+        YearResult year5 = results.get(4);
+
+        assertEquals(year4.getAnnualWithdrawal() + 100_000.0, year5.getAnnualWithdrawal(), 0.01,
+            "Year 5 Withdrawal must rise by the net $100K drop in Income ($300K ended, $200K started)");
+        assertTrue(year5.getAnnualWithdrawal() > 200_000.0, "Withdrawal must not collapse to $0");
+        for (int i = 5; i < 10; i++) {
+            assertTrue(results.get(i).getAnnualWithdrawal() > 0.0,
+                "Withdrawal must not stay stuck at $0 in year " + (i + 1));
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Annuity Bal (deferral accumulation value)
     // -------------------------------------------------------------------------

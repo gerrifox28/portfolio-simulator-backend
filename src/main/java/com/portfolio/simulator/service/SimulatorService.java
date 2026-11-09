@@ -275,12 +275,12 @@ public class SimulatorService {
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.
                 // Exception: TPA's ongoing year-over-year growth (above) already operates on the
                 // actual, Income-net Withdrawal, so Income already accounted for must not be
-                // subtracted a second time here — only newly-starting Income entries (this seq)
-                // get a fresh one-time subtraction; a continuing entry's inflation growth doesn't
-                // perpetually shrink Withdrawal, and an entry ending doesn't snap Withdrawal back up.
+                // subtracted a second time here — only the net change this seq (entries starting
+                // minus entries that just ended) is applied once; a continuing entry's inflation
+                // growth doesn't perpetually shrink Withdrawal.
                 boolean tpaAlreadyNetOfIncome = "tpa".equals(req.getWithdrawalMode()) && seq > 1 && seq != incomeStart;
                 double incomeToSubtract = tpaAlreadyNetOfIncome
-                    ? netNewIncomeFlow(seq, req.getCashFlows(), flowMults)
+                    ? netIncomeChange(seq, req.getCashFlows(), flowMults)
                     : incomeFlow;
                 double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeToSubtract), r.getPortfolioBeginning());
                 r.setAnnualWithdrawal(finalWithdrawal);
@@ -425,13 +425,14 @@ public class SimulatorService {
     }
 
     /**
-     * Initialises per-entry inflation multipliers to [1.0, 1.0] (full, half).
+     * Initialises per-entry inflation multipliers to [1.0, 1.0, 1.0, 1.0]
+     * (full, half, previous-year full, previous-year half).
      * Each entry compounds from its own start year, so all begin at 1.0.
      */
     private Map<String, double[]> initFlowMultipliers(List<CashFlow> flows) {
         Map<String, double[]> map = new HashMap<>();
         if (flows != null) {
-            for (CashFlow cf : flows) map.put(cf.getId(), new double[]{1.0, 1.0});
+            for (CashFlow cf : flows) map.put(cf.getId(), new double[]{1.0, 1.0, 1.0, 1.0});
         }
         return map;
     }
@@ -481,24 +482,29 @@ public class SimulatorService {
     }
 
     /**
-     * Returns the net "Income"-typed manual cash flow contributed by entries whose active
-     * window is beginning exactly at {@code seq} (active now, not active in {@code seq - 1}).
-     * Used so TPA mode can apply a one-time Withdrawal reduction the year an Income entry
-     * starts without re-subtracting it every later year as it grows via inflation, and
-     * without adding it back when the entry's window ends.
+     * Returns the net change in "Income"-typed manual cash flow at {@code seq}: entries whose
+     * window begins at {@code seq} (at this year's amount) minus entries whose window ended
+     * at {@code seq - 1} (at their final-year amount). Used so TPA mode applies a one-time
+     * Withdrawal reduction the year an Income entry starts, and a one-time add-back the year
+     * one stops, without re-subtracting a continuing entry's inflation growth every year.
+     * E.g. a $300K stream ending the same year a $200K stream starts is a net $100K add-back.
      */
-    private double netNewIncomeFlow(int seq, List<CashFlow> flows, Map<String, double[]> mults) {
+    private double netIncomeChange(int seq, List<CashFlow> flows, Map<String, double[]> mults) {
         if (flows == null || flows.isEmpty()) return 0.0;
         double net = 0.0;
         for (CashFlow cf : flows) {
             if (!"income".equals(cf.getType())) continue;
-            if (!flowApplies(cf, seq) || flowApplies(cf, seq - 1)) continue;
+            boolean activeNow = flowApplies(cf, seq);
+            boolean activePrev = flowApplies(cf, seq - 1);
+            if (activeNow == activePrev) continue;
             double amount = cf.getAmount();
-            double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0});
+            double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0, 1.0, 1.0});
             String adj = cf.getInflationAdj();
-            if ("full".equals(adj)) amount *= m[0];
-            else if ("half".equals(adj)) amount *= m[1];
-            net += Double.isNaN(amount) ? 0.0 : amount;
+            // Ended entries use last year's multipliers — the amount actually paid in their final year.
+            if ("full".equals(adj)) amount *= activeNow ? m[0] : m[2];
+            else if ("half".equals(adj)) amount *= activeNow ? m[1] : m[3];
+            if (Double.isNaN(amount)) continue;
+            net += activeNow ? amount : -amount;
         }
         return net;
     }
@@ -512,7 +518,9 @@ public class SimulatorService {
         if (flows == null) return;
         for (CashFlow cf : flows) {
             if (!flowApplies(cf, seq)) continue;
-            double[] m = mults.computeIfAbsent(cf.getId(), k -> new double[]{1.0, 1.0});
+            double[] m = mults.computeIfAbsent(cf.getId(), k -> new double[]{1.0, 1.0, 1.0, 1.0});
+            m[2] = m[0];
+            m[3] = m[1];
             m[0] *= (1.0 + cpi);
             m[1] *= (1.0 + cpi / 2.0);
         }
@@ -975,12 +983,12 @@ public class SimulatorService {
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.
                 // Exception: TPA's ongoing year-over-year growth (above) already operates on the
                 // actual, Income-net Withdrawal, so Income already accounted for must not be
-                // subtracted a second time here — only newly-starting Income entries (this seq)
-                // get a fresh one-time subtraction; a continuing entry's inflation growth doesn't
-                // perpetually shrink Withdrawal, and an entry ending doesn't snap Withdrawal back up.
+                // subtracted a second time here — only the net change this seq (entries starting
+                // minus entries that just ended) is applied once; a continuing entry's inflation
+                // growth doesn't perpetually shrink Withdrawal.
                 boolean tpaAlreadyNetOfIncome = "tpa".equals(req.getWithdrawalMode()) && seq > 1 && seq != incomeStartW;
                 double incomeToSubtract = tpaAlreadyNetOfIncome
-                    ? netNewIncomeFlow(seq, req.getCashFlows(), flowMults)
+                    ? netIncomeChange(seq, req.getCashFlows(), flowMults)
                     : incomeFlow;
                 double finalWithdrawal = Math.min(Math.max(0.0, desiredWithdrawal - incomeToSubtract), beginning);
                 r.setAnnualWithdrawal(finalWithdrawal);

@@ -114,6 +114,13 @@ public class SimulatorService {
         // TPA (Total Income) only: the household's Total Income target — see tpaTotalTarget().
         double tpaTotalTarget = req.getInitialWithdrawal();
 
+        // TPA Sustainable Start only: year-1 Total Income = lesser of entered and sustainable
+        // (today's dollars), grown by actual CPI until the Income Start Year.
+        boolean tpaSustainable = MODE_TPA_SUSTAINABLE.equals(req.getWithdrawalMode());
+        double tpaSustRunning = tpaSustainable
+            ? tpaSustainableTarget(req, req.getStartingNestEgg(), hasAnnuity ? annuityIncome : 0.0)
+            : 0.0;
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -240,6 +247,7 @@ public class SimulatorService {
             // Fixed mode: no compounding — the flat entered amount is used regardless of incomeStartYear.
             if (seq > 1 && !"fixed".equals(req.getWithdrawalMode())) {
                 runningWithdrawal *= (1.0 + results.get(seq - 2).getInflation());
+                tpaSustRunning    *= (1.0 + results.get(seq - 2).getInflation());
             }
 
             // ── Income Start Year override ───────────────────────────────────────
@@ -288,6 +296,20 @@ public class SimulatorService {
                             req.getCashFlows(), flowMults);
                     }
                     desiredWithdrawal = Math.max(0.0, tpaTotalTarget - annuityNow);
+                }
+                if (tpaSustainable) {
+                    // TPA Sustainable Start: seeded at the sustainable Total Income, then the
+                    // portfolio restores all lost purchasing power whenever the PV test passes.
+                    // Expressed as Desired Income (= Withdrawal + Income) so the shared
+                    // "Desired − Income" step below yields the intended Withdrawal.
+                    double annuityNow = hasAnnuity ? r.getAnnuityPayment() : 0.0;
+                    if (seq == incomeStart) {
+                        desiredWithdrawal = Math.max(0.0, tpaSustRunning - annuityNow);
+                    } else {
+                        YearResult prev = results.get(seq - 2);
+                        desiredWithdrawal = incomeFlow + tpaSustainableWithdrawal(seq, prev, prev.getInflation(),
+                            r.getPortfolioBeginning(), incomeFlow, annuityNow, req, flowMults);
+                    }
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.
@@ -427,6 +449,7 @@ public class SimulatorService {
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
         resp.setYearCount(scenarioYears);
+        resp.setSustainableStartIncome(sustainableStartFor(base, base.getStartingNestEgg(), 0.0));
         return resp;
     }
 
@@ -604,12 +627,28 @@ public class SimulatorService {
     private boolean tpaTotalAffordable(int seq, double candidate, double beginning,
                                        double annuityNow, double annuityCap, int yearCount,
                                        List<CashFlow> flows, Map<String, double[]> mults) {
-        int remaining = yearCount - seq;
-        if (remaining < 0) return true;
-        int n = remaining + 1;
+        if (yearCount - seq < 0) return true;
+        TpaProjection p = tpaProject(seq, yearCount, seq, annuityNow, seq, annuityCap, flows, mults);
+        // Tiny relative tolerance so the no-Income case matches TpaTable's <= exactly
+        // despite floating-point differences between the closed form and this sum.
+        return p.pvNeed(candidate) <= (beginning + p.pvCash()) * (1.0 + 1e-12);
+    }
 
-        double[] income = new double[n];
-        double[] cash   = new double[n];
+    /**
+     * Projected streams for the TPA PV test, from {@code seq} through {@code yearCount}
+     * (index k = years after seq). Income and non-Income cash flows follow their own
+     * inflation settings and active years; the annuity pays nothing before
+     * {@code annuityStartSeq}, then {@code annuityBase} growing at min(3%, cap) per year
+     * after max(seq, annuityStartSeq). Years before {@code needStartSeq} have no
+     * portfolio need (pre-Income Start Year).
+     */
+    private TpaProjection tpaProject(int seq, int yearCount, int needStartSeq,
+                                     double annuityBase, int annuityStartSeq, double annuityCap,
+                                     List<CashFlow> flows, Map<String, double[]> mults) {
+        int n = Math.max(0, yearCount - seq + 1);
+        double[] income  = new double[n];
+        double[] cash    = new double[n];
+        double[] annuity = new double[n];
         if (flows != null) {
             for (CashFlow cf : flows) {
                 double amount = cf.getAmount();
@@ -629,21 +668,125 @@ public class SimulatorService {
                 }
             }
         }
-
         double annuityGrowth = 1.0 + Math.max(0.0, Math.min(TPA_TOTAL_INFLATION, annuityCap));
-        double v = (1.0 + TPA_TOTAL_INFLATION) / (1.0 + TPA_TOTAL_RETURN);
-        double discount = 1.0, targetGrowth = 1.0, annuity = annuityNow;
-        double pvNeed = 0.0, pvCash = 0.0;
+        double a = annuityBase;
         for (int k = 0; k < n; k++) {
-            pvNeed += Math.max(0.0, candidate * targetGrowth - income[k] - annuity) * discount;
-            pvCash += cash[k] * discount;
-            discount     /= (1.0 + TPA_TOTAL_RETURN);
-            targetGrowth *= (1.0 + TPA_TOTAL_INFLATION);
-            annuity      *= annuityGrowth;
+            if (seq + k < annuityStartSeq) continue;
+            annuity[k] = a;
+            a *= annuityGrowth;
         }
-        // Tiny relative tolerance so the no-Income case matches TpaTable's ≤ exactly
-        // despite floating-point differences between the closed form and this sum.
-        return pvNeed <= (beginning + pvCash) * (1.0 + 1e-12);
+        return new TpaProjection(income, cash, annuity, Math.max(0, needStartSeq - seq));
+    }
+
+    /** Output of {@link #tpaProject}; see {@link #tpaTotalAffordable} for the test itself. */
+    private static final class TpaProjection {
+        private final double[] income, cash, annuity;
+        private final int needStartK;
+
+        TpaProjection(double[] income, double[] cash, double[] annuity, int needStartK) {
+            this.income = income; this.cash = cash; this.annuity = annuity; this.needStartK = needStartK;
+        }
+
+        boolean hasNeedYears() { return needStartK < income.length; }
+
+        /** Sum over need years of max(0, target*1.03^k - Income_k - Annuity_k) / 1.07^k. */
+        double pvNeed(double target) {
+            double discount = 1.0, targetGrowth = 1.0, pv = 0.0;
+            for (int k = 0; k < income.length; k++) {
+                if (k >= needStartK) pv += Math.max(0.0, target * targetGrowth - income[k] - annuity[k]) * discount;
+                discount     /= (1.0 + TPA_TOTAL_RETURN);
+                targetGrowth *= (1.0 + TPA_TOTAL_INFLATION);
+            }
+            return pv;
+        }
+
+        /** Sum of non-Income Cash Flow_k / 1.07^k. */
+        double pvCash() {
+            double discount = 1.0, pv = 0.0;
+            for (double c : cash) {
+                pv += c * discount;
+                discount /= (1.0 + TPA_TOTAL_RETURN);
+            }
+            return pv;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // TPA SUSTAINABLE START — withdrawal mode "tpa_sustainable"
+    // -------------------------------------------------------------------------
+
+    public static final String MODE_TPA_SUSTAINABLE = "tpa_sustainable";
+
+    /**
+     * The highest year-1 (today's-dollar) Total Income T that passes the TPA (Total Income)
+     * PV test at the start of the plan:
+     *
+     *   Σ_k max(0, T·1.03^k − projected Income_k − projected Annuity_k) / 1.07^k
+     *       ≤  nest egg + Σ_k projected non-Income Cash Flow_k / 1.07^k
+     *
+     * summed over every year from the Income Start Year through yearCount (no portfolio need
+     * before income starts). Depends only on inputs, never on market history. Returns
+     * {@link Double#MAX_VALUE} when there are no income years to fund (nothing constrains T),
+     * and 0 when known cash flows already exhaust the nest egg in PV terms.
+     */
+    public double tpaSustainableStart(SimulationRequest req, double nestEgg, double annuityInitial) {
+        Map<String, double[]> freshMults = initFlowMultipliers(req.getCashFlows());
+        TpaProjection p = tpaProject(1, req.getYearCount(), req.getIncomeStartYear(),
+            annuityInitial, req.getIncomeStartYear(), req.getAnnuityCap(), req.getCashFlows(), freshMults);
+        if (!p.hasNeedYears()) return Double.MAX_VALUE;
+        double resources = nestEgg + p.pvCash();
+        if (resources <= 0) return 0.0;
+
+        // pvNeed is continuous and non-decreasing in T, so bisect for the largest passing T.
+        double lo = 0.0, hi = 1.0;
+        while (p.pvNeed(hi) <= resources) {
+            lo = hi;
+            hi *= 2.0;
+            if (hi > 1e15) return hi; // unreachable in practice; guards against runaway inputs
+        }
+        for (int i = 0; i < 200 && hi - lo > 1e-6; i++) {
+            double mid = 0.5 * (lo + hi);
+            if (p.pvNeed(mid) <= resources) lo = mid; else hi = mid;
+        }
+        return lo;
+    }
+
+    /** Sustainable start for the all-scenarios response: null unless "tpa_sustainable" with income years. */
+    private Double sustainableStartFor(SimulationRequest req, double nestEgg, double annuityInitial) {
+        if (!MODE_TPA_SUSTAINABLE.equals(req.getWithdrawalMode())) return null;
+        double s = tpaSustainableStart(req, nestEgg, annuityInitial);
+        return s == Double.MAX_VALUE ? null : s;
+    }
+
+    /** "tpa_sustainable" year-1 Total Income: the lesser of the entered amount and the sustainable one. */
+    private double tpaSustainableTarget(SimulationRequest req, double nestEgg, double annuityInitial) {
+        return Math.min(req.getInitialWithdrawal(), tpaSustainableStart(req, nestEgg, annuityInitial));
+    }
+
+    /**
+     * "tpa_sustainable" Withdrawal for a year after the Income Start Year. The portfolio is asked
+     * to restore ALL purchasing power lost on Total Income (including Income and annuity that
+     * aren't fully inflation-adjusted):
+     *
+     *   candidate Total Income = last year's actual Total Income × (1 + CPI)
+     *   candidate Withdrawal   = candidate Total Income − this year's Income − Annuity
+     *
+     * CPI ≤ 0 applies without a test. A positive-CPI candidate is granted only if it passes the
+     * same PV test as "tpa_total". If it fails, Withdrawal gets NO inflation adjustment: it stays
+     * at last year's amount, changed only by Income entries starting (−) or ending (+) this year,
+     * so a scheduled stream change is neither a windfall nor a cliff. Missed raises are not
+     * caught up later — next year's candidate starts from this year's actual Total Income.
+     * Returns the Withdrawal before the $0 floor and balance clamp.
+     */
+    private double tpaSustainableWithdrawal(int seq, YearResult prev, double cpi, double beginning,
+                                            double incomeNow, double annuityNow, SimulationRequest req,
+                                            Map<String, double[]> mults) {
+        double candidateTotal = prev.getTotalIncome() * (1.0 + cpi);
+        if (cpi <= 0 || tpaTotalAffordable(seq, candidateTotal, beginning, annuityNow,
+                req.getAnnuityCap(), req.getYearCount(), req.getCashFlows(), mults)) {
+            return candidateTotal - incomeNow - annuityNow;
+        }
+        return prev.getAnnualWithdrawal() - netIncomeChange(seq, req.getCashFlows(), mults);
     }
 
     /**
@@ -1007,6 +1150,7 @@ public class SimulatorService {
         resp.setWorstStartYear(worstStartYear);
         resp.setBestStartYear(bestStartYear);
         resp.setYearCount(scenarioYears);
+        resp.setSustainableStartIncome(sustainableStartFor(portfolioReq, portfolioNestEgg, initialAnnuityIncome));
         return resp;
     }
 
@@ -1037,6 +1181,12 @@ public class SimulatorService {
 
         // TPA (Total Income) only: the household's Total Income target — see tpaTotalTarget().
         double tpaTotalTarget = targetIncome;
+
+        // TPA Sustainable Start only — see simulate().
+        boolean tpaSustainable = MODE_TPA_SUSTAINABLE.equals(req.getWithdrawalMode());
+        double tpaSustRunning = tpaSustainable
+            ? tpaSustainableTarget(req, req.getStartingNestEgg(), initialAnnuityIncome)
+            : 0.0;
 
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
@@ -1104,6 +1254,7 @@ public class SimulatorService {
 
             if (seq > 1 && !"fixed".equals(req.getWithdrawalMode())) {
                 runningTargetIncome *= (1.0 + results.get(seq - 2).getInflation());
+                tpaSustRunning      *= (1.0 + results.get(seq - 2).getInflation());
             }
 
             // Income start year override
@@ -1130,6 +1281,16 @@ public class SimulatorService {
                             req.getCashFlows(), flowMults);
                     }
                     desiredWithdrawal = Math.max(0.0, tpaTotalTarget - annuityIncome);
+                }
+                if (tpaSustainable) {
+                    // TPA Sustainable Start — see the matching block in simulate().
+                    if (seq == incomeStartW) {
+                        desiredWithdrawal = Math.max(0.0, tpaSustRunning - annuityIncome);
+                    } else {
+                        YearResult prev = results.get(seq - 2);
+                        desiredWithdrawal = incomeFlow + tpaSustainableWithdrawal(seq, prev, prev.getInflation(),
+                            beginning, incomeFlow, annuityIncome, req, flowMults);
+                    }
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.

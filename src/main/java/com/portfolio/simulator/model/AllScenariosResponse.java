@@ -50,6 +50,12 @@ public class AllScenariosResponse {
     /** Number of years simulated per scenario (matches the request's yearCount) */
     private int yearCount;
 
+    /**
+     * "tpa_sustainable" mode only: the calculated sustainable year-1 Total Income (today's
+     * dollars) the TPA PV test allows. Null in other modes or when there are no income years.
+     */
+    private Double sustainableStartIncome;
+
     // --- Getters & Setters ---
 
     public List<ScenarioSummary> getScenarios() { return scenarios; }
@@ -93,4 +99,7 @@ public class AllScenariosResponse {
 
     public int getYearCount() { return yearCount; }
     public void setYearCount(int yearCount) { this.yearCount = yearCount; }
+
+    public Double getSustainableStartIncome() { return sustainableStartIncome; }
+    public void setSustainableStartIncome(Double v) { this.sustainableStartIncome = v; }
 }

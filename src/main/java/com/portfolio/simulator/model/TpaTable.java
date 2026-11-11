@@ -16,7 +16,7 @@ package com.portfolio.simulator.model;
  * cell of that table matched this formula to ~1e-13, so results are unchanged for those
  * horizons; the formula simply extends to any horizon instead of silently applying no
  * restriction outside 30–45. The same assumptions drive the PV test used by the
- * "tpa_total" and "tpa_sustainable" withdrawal modes (see SimulatorService).
+ * "tpa_total" withdrawal mode (see SimulatorService).
  */
 public final class TpaTable {
 

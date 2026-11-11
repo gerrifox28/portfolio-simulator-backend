@@ -1406,6 +1406,163 @@ class SimulatorServiceTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // TPA (Total Income) — withdrawal mode "tpa_total"
+    // -------------------------------------------------------------------------
+
+    private SimulationRequest buildTpaTotalRequest(String mode, int startYear, double nestEgg,
+                                                   double withdrawal, int yearCount) {
+        SimulationRequest req = new SimulationRequest();
+        req.setWithdrawalMode(mode);
+        req.setStartYear(startYear);
+        req.setStartingNestEgg(nestEgg);
+        req.setInitialWithdrawal(withdrawal);
+        req.setYearCount(yearCount);
+        return req;
+    }
+
+    private CashFlow tpaTotalFlow(String id, String type, double amount, int start, int end, String adj) {
+        CashFlow cf = new CashFlow();
+        cf.setId(id); cf.setDescription(id); cf.setType(type); cf.setAmount(amount);
+        cf.setAllYears(false); cf.setYearStart(start); cf.setYearEnd(end); cf.setInflationAdj(adj);
+        return cf;
+    }
+
+    /**
+     * With no Income, annuity or cash flows, the PV test must reduce exactly to the classic
+     * TpaTable test — so "tpa_total" must reproduce "tpa" year for year, for every start year
+     * and across the table's horizon range. The sweep must also include real freezes, or the
+     * comparison would prove nothing.
+     */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {30, 40, 45})
+    void tpaTotal_noIncome_matchesClassicTpaExactly(int yearCount) {
+        int lastStart = service.getMaxYear() - yearCount + 1;
+        int freezes = 0;
+        for (int start = 1926; start <= lastStart; start++) {
+            List<YearResult> tpa   = service.simulate(buildTpaTotalRequest("tpa",       start, 1_000_000, 50_000, yearCount));
+            List<YearResult> total = service.simulate(buildTpaTotalRequest("tpa_total", start, 1_000_000, 50_000, yearCount));
+            int n = Math.min(yearCount, tpa.size());
+            assertEquals(n, Math.min(yearCount, total.size()), "Survival differs for start " + start);
+            for (int i = 0; i < n; i++) {
+                assertEquals(tpa.get(i).getAnnualWithdrawal(), total.get(i).getAnnualWithdrawal(), 0.01,
+                    "Withdrawal differs: start " + start + ", year " + (i + 1) + ", horizon " + yearCount);
+                if (i > 0 && tpa.get(i - 1).getInflation() > 0
+                        && tpa.get(i).getAnnualWithdrawal() == tpa.get(i - 1).getAnnualWithdrawal()) {
+                    freezes++;
+                }
+            }
+        }
+        assertTrue(freezes > 0, "The sweep must exercise at least one TPA freeze");
+    }
+
+    /**
+     * The point of the mode: a pension with no COLA loses purchasing power every year, and
+     * TPA (Total Income) has the portfolio make that up, so TOTAL income keeps full CPI
+     * (whenever the raise is affordable). Classic TPA only raises the portfolio share, so
+     * total income lags. 1970s start = high inflation, large nest egg = raises always pass.
+     */
+    @Test
+    void tpaTotal_nonColaPension_portfolioBackfillsSoTotalIncomeKeepsFullCpi() {
+        CashFlow pension = tpaTotalFlow("pension", "income", 40_000, 1, 40, "none");
+
+        SimulationRequest totalReq = buildTpaTotalRequest("tpa_total", 1970, 5_000_000, 100_000, 40);
+        totalReq.setCashFlows(List.of(pension));
+        List<YearResult> total = service.simulate(totalReq);
+
+        SimulationRequest tpaReq = buildTpaTotalRequest("tpa", 1970, 5_000_000, 100_000, 40);
+        tpaReq.setCashFlows(List.of(pension));
+        List<YearResult> tpa = service.simulate(tpaReq);
+
+        assertEquals(60_000, total.get(0).getAnnualWithdrawal(), 0.01, "Year 1: $100K target − $40K pension");
+        for (int i = 1; i <= 10; i++) {
+            double cpi = total.get(i - 1).getInflation();
+            assertEquals(total.get(i - 1).getTotalIncome() * (1 + cpi), total.get(i).getTotalIncome(), 0.01,
+                "Total income must grow by full CPI in year " + (i + 1));
+            assertEquals(total.get(i).getTotalIncome() - 40_000, total.get(i).getAnnualWithdrawal(), 0.01,
+                "Portfolio must fund the target minus the flat pension in year " + (i + 1));
+        }
+        assertTrue(total.get(10).getTotalIncome() > tpa.get(10).getTotalIncome() + 1_000,
+            "Classic TPA leaves total income behind; TPA (Total Income) must not");
+    }
+
+    /**
+     * A large known future expense must count against the PV test: the same plan that earns
+     * a year-2 raise without the expense must freeze with it.
+     */
+    @Test
+    void tpaTotal_largeFutureExpense_blocksRaiseThatWouldOtherwiseBeGranted() {
+        SimulationRequest base = buildTpaTotalRequest("tpa_total", 1970, 2_000_000, 60_000, 40);
+        List<YearResult> without = service.simulate(base);
+
+        SimulationRequest withExpense = buildTpaTotalRequest("tpa_total", 1970, 2_000_000, 60_000, 40);
+        withExpense.setCashFlows(List.of(tpaTotalFlow("expense", "cashflow", -2_500_000, 15, 15, "none")));
+        List<YearResult> with = service.simulate(withExpense);
+
+        assertTrue(without.get(0).getInflation() > 0, "Test needs positive CPI in the start year");
+        assertTrue(without.get(1).getAnnualWithdrawal() > 60_000, "Without the expense the year-2 raise is granted");
+        assertEquals(60_000, with.get(1).getAnnualWithdrawal(), 0.01, "With the expense the year-2 raise is frozen");
+    }
+
+    /**
+     * A Social Security stream starting in year 8 is known in advance: it lowers what the
+     * portfolio must fund later, so the PV test can grant a raise that classic TPA freezes.
+     */
+    @Test
+    void tpaTotal_futureIncome_canUnlockRaiseThatClassicTpaFreezes() {
+        CashFlow ss = tpaTotalFlow("ss", "income", 40_000, 8, 40, "full");
+
+        SimulationRequest tpaReq = buildTpaTotalRequest("tpa", 1970, 1_000_000, 60_000, 40);
+        tpaReq.setCashFlows(List.of(ss));
+        List<YearResult> tpa = service.simulate(tpaReq);
+
+        SimulationRequest totalReq = buildTpaTotalRequest("tpa_total", 1970, 1_000_000, 60_000, 40);
+        totalReq.setCashFlows(List.of(ss));
+        List<YearResult> total = service.simulate(totalReq);
+
+        assertEquals(60_000, tpa.get(1).getAnnualWithdrawal(), 0.01, "Classic TPA freezes year 2 (6% rate)");
+        assertTrue(total.get(1).getAnnualWithdrawal() > 60_000,
+            "TPA (Total Income) sees the coming Social Security and grants the year-2 raise");
+    }
+
+    /** The PV test has no table, so horizons beyond 45 years still get real freezes. */
+    @Test
+    void tpaTotal_horizonBeyondTable_stillFreezes() {
+        List<YearResult> r = service.simulate(buildTpaTotalRequest("tpa_total", 1929, 1_000_000, 50_000, 60));
+        boolean froze = false;
+        for (int i = 1; i < Math.min(60, r.size()); i++) {
+            if (r.get(i - 1).getInflation() > 0 && r.get(i).getAnnualWithdrawal() == r.get(i - 1).getAnnualWithdrawal()) {
+                froze = true;
+                break;
+            }
+        }
+        assertTrue(froze, "A 60-year TPA (Total Income) run must still apply the affordability test");
+    }
+
+    /** Annuity paths: the portfolio backfills a COLA-capped annuity, and the compare endpoint runs. */
+    @Test
+    void tpaTotal_annuity_portfolioBackfillsCappedCola() {
+        SimulationRequest req = buildAnnuityRequest(20_000.0);
+        req.setWithdrawalMode("tpa_total");
+        req.setStartYear(1970);
+        req.setStartingNestEgg(5_000_000.0);
+        req.setInitialWithdrawal(100_000.0);
+        req.setYearCount(40);
+        List<YearResult> r = service.simulate(req);
+        for (int i = 1; i <= 10; i++) {
+            double cpi = r.get(i - 1).getInflation();
+            assertEquals(r.get(i - 1).getTotalIncome() * (1 + cpi), r.get(i).getTotalIncome(), 0.01,
+                "Total income (withdrawal + capped annuity) must grow by full CPI in year " + (i + 1));
+        }
+
+        AnnuityCompareRequest cmp = new AnnuityCompareRequest();
+        cmp.setAge(65);
+        cmp.setWithdrawalMode("tpa_total");
+        AnnuityCompareResponse resp = service.simulateAllCompare(cmp);
+        assertTrue(resp.getWithAnnuity().getTotalScenarios() > 0);
+        assertTrue(resp.getWithoutAnnuity().getTotalScenarios() > 0);
+    }
+
     private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {
         SimulationRequest req = new SimulationRequest();
         req.setStartYear(1951);

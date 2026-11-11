@@ -52,9 +52,12 @@ public class SimulationRequest {
     private double ffEmgMkts = 0.072;
 
     /**
-     * Withdrawal mode: "inflation_adjusted" (default) or "fixed".
+     * Withdrawal mode: "inflation_adjusted" (default), "fixed", "tpa" or "tpa_total".
      * "inflation_adjusted" grows the withdrawal by CPI each year.
      * "fixed" keeps the withdrawal at the initial amount every year.
+     * "tpa" grows the actual withdrawal by CPI only when it passes the TpaTable threshold.
+     * "tpa_total" grows a Total Income target by CPI only when a present-value test passes;
+     * the portfolio funds the target minus Income and annuity (see SimulatorService).
      */
     private String withdrawalMode = "inflation_adjusted";
 

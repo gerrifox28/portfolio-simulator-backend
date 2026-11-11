@@ -111,6 +111,9 @@ public class SimulatorService {
         // growth base, so a temporary Income entry has no lasting effect on later years.
         double desiredWithdrawal = 0.0;
 
+        // TPA (Total Income) only: the household's Total Income target — see tpaTotalTarget().
+        double tpaTotalTarget = req.getInitialWithdrawal();
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -271,6 +274,20 @@ public class SimulatorService {
                     } else {
                         desiredWithdrawal = runningWithdrawal;
                     }
+                }
+                if (MODE_TPA_TOTAL.equals(req.getWithdrawalMode())) {
+                    // TPA (Total Income): the target grows with full CPI until income starts
+                    // (runningWithdrawal); from the year after, each raise must pass the PV test.
+                    // The portfolio then fills the gap left by annuity and Income (subtracted below).
+                    double annuityNow = hasAnnuity ? r.getAnnuityPayment() : 0.0;
+                    if (seq == incomeStart) {
+                        tpaTotalTarget = runningWithdrawal;
+                    } else {
+                        tpaTotalTarget = tpaTotalTarget(seq, tpaTotalTarget, results.get(seq - 2).getInflation(),
+                            r.getPortfolioBeginning(), annuityNow, req.getAnnuityCap(), req.getYearCount(),
+                            req.getCashFlows(), flowMults);
+                    }
+                    desiredWithdrawal = Math.max(0.0, tpaTotalTarget - annuityNow);
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.
@@ -542,6 +559,91 @@ public class SimulatorService {
      */
     private double tpaGrowthBase(YearResult prev, double[] paused) {
         return paused[1] > 0 ? paused[0] : prev.getAnnualWithdrawal();
+    }
+
+    // -------------------------------------------------------------------------
+    // TPA (TOTAL INCOME) — withdrawal mode "tpa_total"
+    // -------------------------------------------------------------------------
+
+    public static final String MODE_TPA_TOTAL = "tpa_total";
+
+    /** Planning assumptions behind the PV test — the same ones baked into {@link TpaTable}. */
+    private static final double TPA_TOTAL_RETURN    = 0.07;
+    private static final double TPA_TOTAL_INFLATION = 0.03;
+
+    /**
+     * TPA (Total Income): next year's Total Income target. Works like "With Inflation
+     * Adjustment" — the target is the household's desired TOTAL income, and the portfolio
+     * fills whatever Income / annuity don't cover — except a positive-CPI raise is granted
+     * only if {@link #tpaTotalAffordable} says the raised target is still fundable.
+     * Negative CPI always applies; zero CPI leaves the target unchanged.
+     */
+    private double tpaTotalTarget(int seq, double prevTarget, double cpi, double beginning,
+                                  double annuityNow, double annuityCap, int yearCount,
+                                  List<CashFlow> flows, Map<String, double[]> mults) {
+        if (cpi <= 0) return prevTarget * (1.0 + cpi);
+        double candidate = prevTarget * (1.0 + cpi);
+        return tpaTotalAffordable(seq, candidate, beginning, annuityNow, annuityCap, yearCount, flows, mults)
+            ? candidate : prevTarget;
+    }
+
+    /**
+     * Present-value sustainability test over the years remaining (this year through yearCount),
+     * at a 7% nominal return and 3% inflation:
+     *
+     *   Σ_k max(0, candidate·1.03^k − projected Income_k − projected Annuity_k) / 1.07^k
+     *       ≤  beginning balance + Σ_k projected non-Income Cash Flow_k / 1.07^k
+     *
+     * Each projected stream follows its own rules: full-adjusted flows grow 3%/yr, half-adjusted
+     * 1.5%/yr, unadjusted 0%; each starts and stops in its scheduled years; the annuity grows at
+     * min(3%, its COLA cap). With no Income, annuity or cash flows this reduces exactly to the
+     * classic TPA test {@code candidate / beginning ≤ TpaTable.lookup(seq, yearCount)}, since
+     * every TpaTable cell equals (1 − v) / (1 − v^(R+1)) with v = 1.03/1.07, R = yearCount − seq.
+     * Past the horizon (R &lt; 0) there's nothing to test — the raise is granted, as in TPA.
+     */
+    private boolean tpaTotalAffordable(int seq, double candidate, double beginning,
+                                       double annuityNow, double annuityCap, int yearCount,
+                                       List<CashFlow> flows, Map<String, double[]> mults) {
+        int remaining = yearCount - seq;
+        if (remaining < 0) return true;
+        int n = remaining + 1;
+
+        double[] income = new double[n];
+        double[] cash   = new double[n];
+        if (flows != null) {
+            for (CashFlow cf : flows) {
+                double amount = cf.getAmount();
+                if (Double.isNaN(amount)) continue;
+                double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0, 1.0, 1.0});
+                String adj = cf.getInflationAdj();
+                double factor = 1.0, growth = 1.0;
+                if ("full".equals(adj))      { factor = m[0]; growth = 1.0 + TPA_TOTAL_INFLATION; }
+                else if ("half".equals(adj)) { factor = m[1]; growth = 1.0 + TPA_TOTAL_INFLATION / 2.0; }
+                boolean isIncome = "income".equals(cf.getType());
+                // Mirrors advanceFlowMultipliers(): an entry only compounds in years it's active.
+                for (int k = 0; k < n; k++) {
+                    if (!flowApplies(cf, seq + k)) continue;
+                    if (isIncome) income[k] += amount * factor;
+                    else          cash[k]   += amount * factor;
+                    factor *= growth;
+                }
+            }
+        }
+
+        double annuityGrowth = 1.0 + Math.max(0.0, Math.min(TPA_TOTAL_INFLATION, annuityCap));
+        double v = (1.0 + TPA_TOTAL_INFLATION) / (1.0 + TPA_TOTAL_RETURN);
+        double discount = 1.0, targetGrowth = 1.0, annuity = annuityNow;
+        double pvNeed = 0.0, pvCash = 0.0;
+        for (int k = 0; k < n; k++) {
+            pvNeed += Math.max(0.0, candidate * targetGrowth - income[k] - annuity) * discount;
+            pvCash += cash[k] * discount;
+            discount     /= (1.0 + TPA_TOTAL_RETURN);
+            targetGrowth *= (1.0 + TPA_TOTAL_INFLATION);
+            annuity      *= annuityGrowth;
+        }
+        // Tiny relative tolerance so the no-Income case matches TpaTable's ≤ exactly
+        // despite floating-point differences between the closed form and this sum.
+        return pvNeed <= (beginning + pvCash) * (1.0 + 1e-12);
     }
 
     /**
@@ -933,6 +1035,9 @@ public class SimulatorService {
         // independent of manual Income entries — see simulate() for why.
         double desiredWithdrawal = 0.0;
 
+        // TPA (Total Income) only: the household's Total Income target — see tpaTotalTarget().
+        double tpaTotalTarget = targetIncome;
+
         for (int seq = 1; ; seq++) {
             int year = req.getStartYear() + (seq - 1);
             if (year > maxYear) break;
@@ -1014,6 +1119,17 @@ public class SimulatorService {
                 if (seq == incomeStartW && seq > 1) {
                     // Not clamped to the portfolio balance here — see seq==1 comment above.
                     desiredWithdrawal = Math.max(0.0, runningTargetIncome - annuityIncome);
+                }
+                if (MODE_TPA_TOTAL.equals(req.getWithdrawalMode())) {
+                    // TPA (Total Income) — see the matching block in simulate().
+                    if (seq == incomeStartW) {
+                        tpaTotalTarget = runningTargetIncome;
+                    } else {
+                        tpaTotalTarget = tpaTotalTarget(seq, tpaTotalTarget, results.get(seq - 2).getInflation(),
+                            beginning, annuityIncome, req.getAnnuityCap(), req.getYearCount(),
+                            req.getCashFlows(), flowMults);
+                    }
+                    desiredWithdrawal = Math.max(0.0, tpaTotalTarget - annuityIncome);
                 }
                 // Withdrawal = Desired Income − Income, recomputed fresh every year so a
                 // manual Income entry never has a lasting effect beyond the year(s) it applies to.

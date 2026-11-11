@@ -171,7 +171,7 @@ public class SimulatorService {
                             pw = actualPrevWithdrawal * (1.0 + cpi);
                         } else {
                             double ratio = (actualPrevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / r.getPortfolioBeginning();
-                            double threshold = TpaTable.lookup(seq, req.getYearCount());
+                            double threshold = TpaTable.lookup(seq, req.getYearCount(), req.getTpaAssumedReturn(), req.getTpaAssumedInflation());
                             pw = (ratio <= threshold) ? actualPrevWithdrawal * (1.0 + cpi) : actualPrevWithdrawal;
                         }
                     } else {
@@ -210,7 +210,7 @@ public class SimulatorService {
                         } else {
                             // Positive CPI — apply only if TPA ratio allows it
                             double ratio = (actualPrevWithdrawal - prev.getCashFlowApplied()) * (1.0 + prevInflation) / r.getPortfolioBeginning();
-                            double threshold = TpaTable.lookup(seq, req.getYearCount());
+                            double threshold = TpaTable.lookup(seq, req.getYearCount(), req.getTpaAssumedReturn(), req.getTpaAssumedInflation());
                             if (ratio <= threshold) {
                                 inflationAdjWithdrawal = actualPrevWithdrawal * (1.0 + prevInflation);
                             } else {
@@ -284,8 +284,7 @@ public class SimulatorService {
                         tpaTotalTarget = runningWithdrawal;
                     } else {
                         tpaTotalTarget = tpaTotalTarget(seq, tpaTotalTarget, results.get(seq - 2).getInflation(),
-                            r.getPortfolioBeginning(), annuityNow, req.getAnnuityCap(), req.getYearCount(),
-                            req.getCashFlows(), flowMults);
+                            r.getPortfolioBeginning(), annuityNow, req, flowMults);
                     }
                     desiredWithdrawal = Math.max(0.0, tpaTotalTarget - annuityNow);
                 }
@@ -348,6 +347,8 @@ public class SimulatorService {
         base.setYearCount(scenarioYears);
         base.setCashFlows(req.getCashFlows());
         base.setIncomeStartYear(req.getIncomeStartYear());
+        base.setTpaAssumedReturn(req.getTpaAssumedReturn());
+        base.setTpaAssumedInflation(req.getTpaAssumedInflation());
         applyAllocations(base, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -567,10 +568,6 @@ public class SimulatorService {
 
     public static final String MODE_TPA_TOTAL = "tpa_total";
 
-    /** Planning assumptions behind the PV test — shared with classic TPA via {@link TpaTable}. */
-    private static final double TPA_TOTAL_RETURN    = TpaTable.ASSUMED_RETURN;
-    private static final double TPA_TOTAL_INFLATION = TpaTable.ASSUMED_INFLATION;
-
     /**
      * TPA (Total Income): next year's Total Income target. Works like "With Inflation
      * Adjustment" — the target is the household's desired TOTAL income, and the portfolio
@@ -579,31 +576,31 @@ public class SimulatorService {
      * Negative CPI always applies; zero CPI leaves the target unchanged.
      */
     private double tpaTotalTarget(int seq, double prevTarget, double cpi, double beginning,
-                                  double annuityNow, double annuityCap, int yearCount,
-                                  List<CashFlow> flows, Map<String, double[]> mults) {
+                                  double annuityNow, SimulationRequest req, Map<String, double[]> mults) {
         if (cpi <= 0) return prevTarget * (1.0 + cpi);
         double candidate = prevTarget * (1.0 + cpi);
-        return tpaTotalAffordable(seq, candidate, beginning, annuityNow, annuityCap, yearCount, flows, mults)
+        return tpaTotalAffordable(seq, candidate, beginning, annuityNow, req.getAnnuityCap(), req.getYearCount(),
+                req.getCashFlows(), mults, req.getTpaAssumedReturn(), req.getTpaAssumedInflation())
             ? candidate : prevTarget;
     }
 
     /**
      * Present-value sustainability test over the years remaining (this year through yearCount),
-     * at a 7% nominal return and 3% inflation:
+     * at the assumed nominal return r and inflation i (default 7% / 3%, user-adjustable):
      *
-     *   Σ_k max(0, candidate·1.03^k − projected Income_k − projected Annuity_k) / 1.07^k
-     *       ≤  beginning balance + Σ_k projected non-Income Cash Flow_k / 1.07^k
+     *   Σ_k max(0, candidate·(1+i)^k − projected Income_k − projected Annuity_k) / (1+r)^k
+     *       ≤  beginning balance + Σ_k projected non-Income Cash Flow_k / (1+r)^k
      *
-     * Each projected stream follows its own rules: full-adjusted flows grow 3%/yr, half-adjusted
-     * 1.5%/yr, unadjusted 0%; each starts and stops in its scheduled years; the annuity grows at
-     * min(3%, its COLA cap). With no Income, annuity or cash flows this reduces exactly to the
-     * classic TPA test {@code candidate / beginning ≤ TpaTable.lookup(seq, yearCount)}, since
-     * TpaTable.lookup computes (1 − v) / (1 − v^(R+1)) with v = 1.03/1.07, R = yearCount − seq.
+     * Each projected stream follows its own rules: full-adjusted flows grow at i, half-adjusted
+     * at i/2, unadjusted 0%; each starts and stops in its scheduled years; the annuity grows at
+     * min(i, its COLA cap). With no Income, annuity or cash flows this reduces exactly to the
+     * classic TPA test {@code candidate / beginning ≤ TpaTable.lookup(seq, yearCount, r, i)}.
      * Past the horizon (R &lt; 0) there's nothing to test — the raise is granted, as in TPA.
      */
     private boolean tpaTotalAffordable(int seq, double candidate, double beginning,
                                        double annuityNow, double annuityCap, int yearCount,
-                                       List<CashFlow> flows, Map<String, double[]> mults) {
+                                       List<CashFlow> flows, Map<String, double[]> mults,
+                                       double assumedReturn, double assumedInflation) {
         int remaining = yearCount - seq;
         if (remaining < 0) return true;
         int n = remaining + 1;
@@ -617,8 +614,8 @@ public class SimulatorService {
                 double[] m = mults.getOrDefault(cf.getId(), new double[]{1.0, 1.0, 1.0, 1.0});
                 String adj = cf.getInflationAdj();
                 double factor = 1.0, growth = 1.0;
-                if ("full".equals(adj))      { factor = m[0]; growth = 1.0 + TPA_TOTAL_INFLATION; }
-                else if ("half".equals(adj)) { factor = m[1]; growth = 1.0 + TPA_TOTAL_INFLATION / 2.0; }
+                if ("full".equals(adj))      { factor = m[0]; growth = 1.0 + assumedInflation; }
+                else if ("half".equals(adj)) { factor = m[1]; growth = 1.0 + assumedInflation / 2.0; }
                 boolean isIncome = "income".equals(cf.getType());
                 // Mirrors advanceFlowMultipliers(): an entry only compounds in years it's active.
                 for (int k = 0; k < n; k++) {
@@ -630,15 +627,14 @@ public class SimulatorService {
             }
         }
 
-        double annuityGrowth = 1.0 + Math.max(0.0, Math.min(TPA_TOTAL_INFLATION, annuityCap));
-        double v = (1.0 + TPA_TOTAL_INFLATION) / (1.0 + TPA_TOTAL_RETURN);
+        double annuityGrowth = 1.0 + Math.max(0.0, Math.min(assumedInflation, annuityCap));
         double discount = 1.0, targetGrowth = 1.0, annuity = annuityNow;
         double pvNeed = 0.0, pvCash = 0.0;
         for (int k = 0; k < n; k++) {
             pvNeed += Math.max(0.0, candidate * targetGrowth - income[k] - annuity) * discount;
             pvCash += cash[k] * discount;
-            discount     /= (1.0 + TPA_TOTAL_RETURN);
-            targetGrowth *= (1.0 + TPA_TOTAL_INFLATION);
+            discount     /= (1.0 + assumedReturn);
+            targetGrowth *= (1.0 + assumedInflation);
             annuity      *= annuityGrowth;
         }
         // Tiny relative tolerance so the no-Income case matches TpaTable's ≤ exactly
@@ -929,6 +925,8 @@ public class SimulatorService {
         portfolioReq.setYearCount(scenarioYears);
         portfolioReq.setCashFlows(req.getCashFlows());
         portfolioReq.setIncomeStartYear(req.getIncomeStartYear());
+        portfolioReq.setTpaAssumedReturn(req.getTpaAssumedReturn());
+        portfolioReq.setTpaAssumedInflation(req.getTpaAssumedInflation());
         applyAllocations(portfolioReq, req);
 
         int maxYear = Collections.max(historicalData.keySet());
@@ -1084,7 +1082,7 @@ public class SimulatorService {
                         desiredWithdrawal = actualPrevWithdrawal * (1.0 + cpi);
                     } else {
                         double ratio = (actualPrevWithdrawal - prev.getCashFlowApplied()) * (1.0 + cpi) / beginning;
-                        double threshold = TpaTable.lookup(seq, req.getYearCount());
+                        double threshold = TpaTable.lookup(seq, req.getYearCount(), req.getTpaAssumedReturn(), req.getTpaAssumedInflation());
                         desiredWithdrawal = (ratio <= threshold) ? actualPrevWithdrawal * (1.0 + cpi) : actualPrevWithdrawal;
                     }
                 } else {
@@ -1126,8 +1124,7 @@ public class SimulatorService {
                         tpaTotalTarget = runningTargetIncome;
                     } else {
                         tpaTotalTarget = tpaTotalTarget(seq, tpaTotalTarget, results.get(seq - 2).getInflation(),
-                            beginning, annuityIncome, req.getAnnuityCap(), req.getYearCount(),
-                            req.getCashFlows(), flowMults);
+                            beginning, annuityIncome, req, flowMults);
                     }
                     desiredWithdrawal = Math.max(0.0, tpaTotalTarget - annuityIncome);
                 }

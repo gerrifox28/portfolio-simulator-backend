@@ -158,6 +158,8 @@ public class AnnuityCompareRequest {
         r.setMFiveYearUS(mFiveYearUS);
         r.setCashFlows(cashFlows);
         r.setIncomeStartYear(incomeStartYear);
+        r.setTpaAssumedReturn(tpaAssumedReturn);
+        r.setTpaAssumedInflation(tpaAssumedInflation);
         return r;
     }
 
@@ -168,4 +170,14 @@ public class AnnuityCompareRequest {
     private int incomeStartYear = 1;
     public int getIncomeStartYear() { return incomeStartYear; }
     public void setIncomeStartYear(int incomeStartYear) { this.incomeStartYear = Math.max(1, incomeStartYear); }
+
+    /** TPA modes: assumed nominal portfolio return used by the TPA test (default 7%). */
+    private double tpaAssumedReturn = TpaTable.DEFAULT_RETURN;
+    public double getTpaAssumedReturn() { return tpaAssumedReturn; }
+    public void setTpaAssumedReturn(double v) { this.tpaAssumedReturn = v; }
+
+    /** TPA modes: assumed inflation used by the TPA test (default 3%). */
+    private double tpaAssumedInflation = TpaTable.DEFAULT_INFLATION;
+    public double getTpaAssumedInflation() { return tpaAssumedInflation; }
+    public void setTpaAssumedInflation(double v) { this.tpaAssumedInflation = v; }
 }

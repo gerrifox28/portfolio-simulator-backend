@@ -1621,6 +1621,101 @@ class SimulatorServiceTest {
         assertTrue(resp.getWithoutAnnuity().getTotalScenarios() > 0);
     }
 
+    // -------------------------------------------------------------------------
+    // User-adjustable TPA assumptions (tpaAssumedReturn / tpaAssumedInflation)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void tpaThreshold_customAssumptions_followFormula_andDefaultsAre7And3() {
+        assertEquals(TpaTable.lookup(2, 40), TpaTable.lookup(2, 40, 0.07, 0.03), 0.0);
+        double v = 1.02 / 1.09;
+        assertEquals((1 - v) / (1 - Math.pow(v, 39)), TpaTable.lookup(2, 40, 0.09, 0.02), 1e-15);
+        // Return = inflation: v = 1, threshold is simply 1 / (years remaining incl. this one).
+        assertEquals(1.0 / 39, TpaTable.lookup(2, 40, 0.05, 0.05), 1e-15);
+        assertTrue(TpaTable.lookup(2, 40, 0.08, 0.03) > TpaTable.lookup(2, 40, 0.07, 0.03), "Higher return, higher threshold");
+        assertTrue(TpaTable.lookup(2, 40, 0.07, 0.04) < TpaTable.lookup(2, 40, 0.07, 0.03), "Higher inflation, lower threshold");
+    }
+
+    @Test
+    void tpaMode_higherAssumedReturn_grantsRaiseTheDefaultFreezes() {
+        SimulationRequest def = buildTpaTotalRequest("tpa", 1970, 1_000_000, 60_000, 40);
+        assertEquals(60_000, service.simulate(def).get(1).getAnnualWithdrawal(), 0.01, "Frozen at 7%/3%");
+
+        SimulationRequest high = buildTpaTotalRequest("tpa", 1970, 1_000_000, 60_000, 40);
+        high.setTpaAssumedReturn(0.10);
+        List<YearResult> r = service.simulate(high);
+        assertEquals(60_000 * (1 + r.get(0).getInflation()), r.get(1).getAnnualWithdrawal(), 0.01, "Granted at 10%/3%");
+    }
+
+    @Test
+    void tpaMode_returnEqualToInflation_freezesRaiseTheDefaultGrants() {
+        SimulationRequest def = buildTpaTotalRequest("tpa", 1950, 1_000_000, 40_000, 40);
+        List<YearResult> d = service.simulate(def);
+        assertEquals(40_000 * (1 + d.get(0).getInflation()), d.get(1).getAnnualWithdrawal(), 0.01, "Granted at 7%/3%");
+
+        SimulationRequest zeroReal = buildTpaTotalRequest("tpa", 1950, 1_000_000, 40_000, 40);
+        zeroReal.setTpaAssumedReturn(0.03);
+        zeroReal.setTpaAssumedInflation(0.03);
+        assertEquals(40_000, service.simulate(zeroReal).get(1).getAnnualWithdrawal(), 0.01,
+            "At 3%/3% the threshold is 1/39 = 2.6%, so a 4% rate freezes");
+    }
+
+    /** The tpa_total PV test must still reduce to classic TPA under non-default assumptions. */
+    @Test
+    void tpaTotal_noIncome_matchesClassicTpa_underCustomAssumptions() {
+        for (int start = 1926; start <= service.getMaxYear() - 39; start++) {
+            SimulationRequest a = buildTpaTotalRequest("tpa", start, 1_000_000, 55_000, 40);
+            SimulationRequest b = buildTpaTotalRequest("tpa_total", start, 1_000_000, 55_000, 40);
+            for (SimulationRequest q : List.of(a, b)) { q.setTpaAssumedReturn(0.085); q.setTpaAssumedInflation(0.025); }
+            List<YearResult> ra = service.simulate(a), rb = service.simulate(b);
+            for (int i = 0; i < Math.min(40, ra.size()); i++) {
+                assertEquals(ra.get(i).getAnnualWithdrawal(), rb.get(i).getAnnualWithdrawal(), 0.01,
+                    "start " + start + " year " + (i + 1));
+            }
+        }
+    }
+
+    /** In tpa_total the inflation setting also sets how fast fully-adjusted Income is projected to grow. */
+    @Test
+    void tpaTotal_assumedInflation_alsoDrivesIncomeProjection() {
+        CashFlow ss = tpaTotalFlow("ss", "income", 40_000, 1, 40, "full");
+        // Same 4-point gap (7/3 vs 9/5): classic TPA would see near-identical thresholds, but the
+        // fully-adjusted Social Security is projected to grow faster at 5%, so tpa_total differs.
+        SimulationRequest a = buildTpaTotalRequest("tpa_total", 1966, 1_000_000, 100_000, 40);
+        a.setCashFlows(List.of(ss));
+        SimulationRequest b = buildTpaTotalRequest("tpa_total", 1966, 1_000_000, 100_000, 40);
+        b.setCashFlows(List.of(ss));
+        b.setTpaAssumedReturn(0.09);
+        b.setTpaAssumedInflation(0.05);
+        List<YearResult> ra = service.simulate(a), rb = service.simulate(b);
+        boolean differs = false;
+        for (int i = 0; i < 40 && i < ra.size() && i < rb.size(); i++) {
+            if (Math.abs(ra.get(i).getTotalIncome() - rb.get(i).getTotalIncome()) > 0.01) { differs = true; break; }
+        }
+        assertTrue(differs, "Inflation assumption must affect tpa_total beyond the return/inflation gap");
+    }
+
+    /** The settings must reach every all-scenarios path, including the annuity comparison. */
+    @Test
+    void tpaAssumptions_passThroughAllScenariosAndCompare() {
+        AllScenariosRequest def = new AllScenariosRequest();
+        def.setWithdrawalMode("tpa");
+        def.setInitialWithdrawal(60_000);
+        AllScenariosRequest high = new AllScenariosRequest();
+        high.setWithdrawalMode("tpa");
+        high.setInitialWithdrawal(60_000);
+        high.setTpaAssumedReturn(0.10);
+        assertTrue(service.simulateAll(high).getAverageAnnualTotalIncome()
+                 > service.simulateAll(def).getAverageAnnualTotalIncome(), "10% assumption grants more raises");
+
+        AnnuityCompareRequest cmp = new AnnuityCompareRequest();
+        cmp.setTpaAssumedReturn(0.095);
+        cmp.setTpaAssumedInflation(0.015);
+        AllScenariosRequest copied = cmp.toAllScenariosRequest();
+        assertEquals(0.095, copied.getTpaAssumedReturn(), 0.0);
+        assertEquals(0.015, copied.getTpaAssumedInflation(), 0.0);
+    }
+
     private SimulationRequest buildAnnuityRequest(double initialAnnuityIncome) {
         SimulationRequest req = new SimulationRequest();
         req.setStartYear(1951);

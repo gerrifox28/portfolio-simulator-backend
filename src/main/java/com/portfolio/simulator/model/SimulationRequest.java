@@ -55,7 +55,8 @@ public class SimulationRequest {
      * Withdrawal mode: "inflation_adjusted" (default), "fixed", "tpa" or "tpa_total".
      * "inflation_adjusted" grows the withdrawal by CPI each year.
      * "fixed" keeps the withdrawal at the initial amount every year.
-     * "tpa" grows the actual withdrawal by CPI only when it passes the TpaTable threshold (7%/3% formula).
+     * "tpa" grows the actual withdrawal by CPI only when it passes the TpaTable threshold; both TPA
+     * modes use tpaAssumedReturn / tpaAssumedInflation (default 7% / 3%).
      * "tpa_total" grows a Total Income target by CPI only when a present-value test passes;
      * the portfolio funds the target minus Income and annuity (see SimulatorService).
      */
@@ -154,6 +155,20 @@ public class SimulationRequest {
     private int incomeStartYear = 1;
     public int getIncomeStartYear() { return incomeStartYear; }
     public void setIncomeStartYear(int incomeStartYear) { this.incomeStartYear = Math.max(1, incomeStartYear); }
+
+    /** TPA modes: assumed nominal portfolio return used by the TPA test (default 7%). */
+    @DecimalMin(value = "0.0", message = "TPA assumed return cannot be negative")
+    @DecimalMax(value = "0.25", message = "TPA assumed return cannot exceed 25%")
+    private double tpaAssumedReturn = TpaTable.DEFAULT_RETURN;
+    public double getTpaAssumedReturn() { return tpaAssumedReturn; }
+    public void setTpaAssumedReturn(double v) { this.tpaAssumedReturn = v; }
+
+    /** TPA modes: assumed inflation used by the TPA test (default 3%). */
+    @DecimalMin(value = "0.0", message = "TPA assumed inflation cannot be negative")
+    @DecimalMax(value = "0.25", message = "TPA assumed inflation cannot exceed 25%")
+    private double tpaAssumedInflation = TpaTable.DEFAULT_INFLATION;
+    public double getTpaAssumedInflation() { return tpaAssumedInflation; }
+    public void setTpaAssumedInflation(double v) { this.tpaAssumedInflation = v; }
 
     /** Returns the sum of all allocation weights. Should equal 1.0. */
     public double allocationSum() {

@@ -590,9 +590,9 @@ public class SimulatorService {
 
     public static final String MODE_TPA_TOTAL = "tpa_total";
 
-    /** Planning assumptions behind the PV test — the same ones baked into {@link TpaTable}. */
-    private static final double TPA_TOTAL_RETURN    = 0.07;
-    private static final double TPA_TOTAL_INFLATION = 0.03;
+    /** Planning assumptions behind the PV test — shared with classic TPA via {@link TpaTable}. */
+    private static final double TPA_TOTAL_RETURN    = TpaTable.ASSUMED_RETURN;
+    private static final double TPA_TOTAL_INFLATION = TpaTable.ASSUMED_INFLATION;
 
     /**
      * TPA (Total Income): next year's Total Income target. Works like "With Inflation
@@ -621,7 +621,7 @@ public class SimulatorService {
      * 1.5%/yr, unadjusted 0%; each starts and stops in its scheduled years; the annuity grows at
      * min(3%, its COLA cap). With no Income, annuity or cash flows this reduces exactly to the
      * classic TPA test {@code candidate / beginning ≤ TpaTable.lookup(seq, yearCount)}, since
-     * every TpaTable cell equals (1 − v) / (1 − v^(R+1)) with v = 1.03/1.07, R = yearCount − seq.
+     * TpaTable.lookup computes (1 − v) / (1 − v^(R+1)) with v = 1.03/1.07, R = yearCount − seq.
      * Past the horizon (R &lt; 0) there's nothing to test — the raise is granted, as in TPA.
      */
     private boolean tpaTotalAffordable(int seq, double candidate, double beginning,

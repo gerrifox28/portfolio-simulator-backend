@@ -8,6 +8,7 @@ import com.portfolio.simulator.model.AnnuityRateTable;
 import com.portfolio.simulator.model.CashFlow;
 import com.portfolio.simulator.model.ScenarioSummary;
 import com.portfolio.simulator.model.SimulationRequest;
+import com.portfolio.simulator.model.TpaTable;
 import com.portfolio.simulator.model.YearResult;
 import com.portfolio.simulator.service.SimulatorService;
 import com.portfolio.simulator.service.SpreadsheetLoaderService;
@@ -1430,13 +1431,70 @@ class SimulatorServiceTest {
     }
 
     /**
-     * With no Income, annuity or cash flows, the PV test must reduce exactly to the classic
-     * TpaTable test — so "tpa_total" must reproduce "tpa" year for year, for every start year
-     * and across the table's horizon range. The sweep must also include real freezes, or the
-     * comparison would prove nothing.
+     * The TPA threshold used to be a hand-supplied table (seq 2–45 × horizons 30–45). It was
+     * replaced by the 7%/3% formula it was built from; these cells, copied verbatim from the
+     * original table, pin the formula to the numbers the user supplied. (Every one of the 584
+     * in-horizon cells matched to ~1e-13 when the table was retired.)
      */
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {30, 40, 45})
+    @org.junit.jupiter.params.provider.CsvSource({
+        "2, 30, 0.0558997009652429",
+        "2, 40, 0.0483174027974914",
+        "2, 45, 0.0459844490727497",
+        "10, 40, 0.0539394944124915",
+        "20, 35, 0.0819033455481412",
+        "29, 30, 0.5095238095238203",
+        "30, 30, 1.0000000000000431",
+        "39, 40, 0.5095238095238170",
+        "40, 40, 1.0000000000000300",
+        "45, 45, 0.9999999999999754",
+    })
+    void tpaThreshold_matchesOriginalSuppliedTable(int seq, int yearCount, double original) {
+        assertEquals(original, TpaTable.lookup(seq, yearCount), 1e-12);
+    }
+
+    @Test
+    void tpaThreshold_noRestrictionInYearOneOrPastHorizon_butAppliesToAnyHorizon() {
+        assertEquals(Double.MAX_VALUE, TpaTable.lookup(1, 40));
+        assertEquals(Double.MAX_VALUE, TpaTable.lookup(41, 40));
+        assertTrue(TpaTable.lookup(2, 25) < 1.0, "25-year horizon is now restricted");
+        assertTrue(TpaTable.lookup(2, 60) < TpaTable.lookup(2, 45), "Longer horizon, lower threshold");
+        assertEquals(1.0, TpaTable.lookup(60, 60), 1e-12, "Final year: spend whatever is left");
+    }
+
+    /**
+     * Before the formula replaced the table, classic TPA silently applied NO test outside
+     * horizons 30–45 (it behaved like plain inflation adjustment). It must now freeze there too.
+     */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "20, 90000",   // 20-yr year-2 threshold ≈ 7.3%, so a 9% rate must freeze
+        "25, 60000",   // ≈ 6.2%
+        "50, 60000",   // ≈ 4.2%
+        "60, 60000",   // ≈ 3.9%
+    })
+    void tpaMode_horizonOutsideOldTableRange_stillFreezes(int yearCount, double withdrawal) {
+        List<YearResult> tpa = service.simulate(buildTpaTotalRequest("tpa", 1970, 1_000_000, withdrawal, yearCount));
+        assertTrue(tpa.get(0).getInflation() > 0);
+        assertEquals(withdrawal, tpa.get(1).getAnnualWithdrawal(), 0.01,
+            "Year 2 must freeze at a " + yearCount + "-year horizon");
+    }
+
+    @Test
+    void tpaMode_shortHorizon_grantsRaiseTheHigherThresholdAllows() {
+        // Same 6% rate that freezes at 25+ years passes the ~7.3% threshold of a 20-year plan.
+        List<YearResult> tpa = service.simulate(buildTpaTotalRequest("tpa", 1970, 1_000_000, 60_000, 20));
+        assertEquals(60_000 * (1 + tpa.get(0).getInflation()), tpa.get(1).getAnnualWithdrawal(), 0.01);
+    }
+
+    /**
+     * With no Income, annuity or cash flows, the PV test must reduce exactly to the classic
+     * TPA threshold — so "tpa_total" must reproduce "tpa" year for year, for every start year
+     * and across horizons (including ones the old table didn't cover). The sweep must also
+     * include real freezes, or the comparison would prove nothing.
+     */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {25, 30, 40, 45, 50})
     void tpaTotal_noIncome_matchesClassicTpaExactly(int yearCount) {
         int lastStart = service.getMaxYear() - yearCount + 1;
         int freezes = 0;

@@ -55,6 +55,13 @@ public class YearResult {
      */
     private double incomeApplied;
 
+    /**
+     * Income received beyond this year's income target, added to the portfolio at the start
+     * of the year instead of being counted as spending (excluded from totalIncome). Always 0
+     * in Classic TPA mode.
+     */
+    private double incomeReinvested;
+
     // --- Getters & Setters ---
 
     public int getSequenceNumber() { return sequenceNumber; }
@@ -98,4 +105,7 @@ public class YearResult {
 
     public double getIncomeApplied() { return incomeApplied; }
     public void setIncomeApplied(double incomeApplied) { this.incomeApplied = incomeApplied; }
+
+    public double getIncomeReinvested() { return incomeReinvested; }
+    public void setIncomeReinvested(double incomeReinvested) { this.incomeReinvested = incomeReinvested; }
 }

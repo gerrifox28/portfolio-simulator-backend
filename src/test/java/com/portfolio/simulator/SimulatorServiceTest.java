@@ -1729,4 +1729,95 @@ class SimulatorServiceTest {
         req.setCrsp6_10(0.0); req.setFfIntl(0.0); req.setDjUsReit(0.0); req.setFfEmgMkts(0.0);
         return req;
     }
+
+    // -------------------------------------------------------------------------
+    // Excess income is reinvested, not spent: Total Income never spikes above the
+    // year's target; the surplus is added to the portfolio at the start of the year.
+    // Applies to Fixed, With Inflation Adjustment and TPA (Total Income) — not Classic TPA.
+    // -------------------------------------------------------------------------
+
+    private SimulationRequest excessRequest(String mode, double nestEgg, double withdrawal, CashFlow... flows) {
+        SimulationRequest req = zeroReturnRequest();
+        req.setWithdrawalMode(mode);
+        req.setStartingNestEgg(nestEgg);
+        req.setInitialWithdrawal(withdrawal);
+        req.setCashFlows(List.of(flows));
+        return req;
+    }
+
+    @Test
+    void excessIncome_fixedMode_isReinvestedAndTotalIncomeStaysAtTarget() {
+        List<YearResult> rs = service.simulate(excessRequest("fixed", 100_000, 50_000,
+            tpaTotalFlow("bonus", "income", 70_000, 1, 1, "none")));
+
+        YearResult y1 = rs.get(0);
+        assertEquals(0.0, y1.getAnnualWithdrawal(), 0.01);
+        assertEquals(20_000.0, y1.getIncomeReinvested(), 0.01, "Income beyond the $50K target is reinvested");
+        assertEquals(50_000.0, y1.getTotalIncome(), 0.01, "Total Income must not spike above the target");
+        assertEquals(120_000.0, y1.getPortfolioEnd(), 0.01, "The $20K excess is added to the nest egg");
+
+        YearResult y2 = rs.get(1);
+        assertEquals(0.0, y2.getIncomeReinvested(), 0.01);
+        assertEquals(50_000.0, y2.getTotalIncome(), 0.01);
+        assertEquals(70_000.0, y2.getPortfolioEnd(), 0.01);
+    }
+
+    @Test
+    void excessIncome_inflationAdjustedMode_isReinvested() {
+        List<YearResult> rs = service.simulate(excessRequest("inflation_adjusted", 100_000, 50_000,
+            tpaTotalFlow("bonus", "income", 70_000, 1, 1, "none")));
+        assertEquals(20_000.0, rs.get(0).getIncomeReinvested(), 0.01);
+        assertEquals(50_000.0, rs.get(0).getTotalIncome(), 0.01);
+        assertEquals(120_000.0, rs.get(0).getPortfolioEnd(), 0.01);
+    }
+
+    @Test
+    void excessIncome_tpaTotal_incomeAboveTarget_isReinvested() {
+        List<YearResult> rs = service.simulate(excessRequest(SimulatorService.MODE_TPA_TOTAL, 500_000, 60_000,
+            tpaTotalFlow("bonus", "income", 80_000, 1, 1, "none")));
+        assertEquals(20_000.0, rs.get(0).getIncomeReinvested(), 0.01);
+        assertEquals(60_000.0, rs.get(0).getTotalIncome(), 0.01);
+        assertEquals(520_000.0, rs.get(0).getPortfolioEnd(), 0.01);
+    }
+
+    @Test
+    void excessIncome_tpaTotal_annuityAboveTarget_isReinvested() {
+        SimulationRequest req = excessRequest(SimulatorService.MODE_TPA_TOTAL, 500_000, 60_000);
+        req.setAnnuityInitialIncome(70_000);
+        List<YearResult> rs = service.simulate(req);
+        assertEquals(10_000.0, rs.get(0).getIncomeReinvested(), 0.01);
+        assertEquals(60_000.0, rs.get(0).getTotalIncome(), 0.01);
+        assertEquals(510_000.0, rs.get(0).getPortfolioEnd(), 0.01);
+    }
+
+    @Test
+    void excessIncome_classicTpa_isUnchanged_notReinvested() {
+        List<YearResult> rs = service.simulate(excessRequest("tpa", 500_000, 60_000,
+            tpaTotalFlow("bonus", "income", 80_000, 1, 1, "none")));
+        assertEquals(0.0, rs.get(0).getIncomeReinvested(), 0.01, "Classic TPA never reinvests excess income");
+        assertEquals(80_000.0, rs.get(0).getTotalIncome(), 0.01);
+        assertEquals(500_000.0, rs.get(0).getPortfolioEnd(), 0.01);
+    }
+
+    /**
+     * The TPA (Total Income) raise test counts a future surplus (Income above the target) as
+     * funding, because that surplus is now actually reinvested. Zero returns, 4-year plan,
+     * $50K target, $110K nest egg (so $60K at the start of Year 2), and a one-time $120K Income
+     * in Year 4. Ignoring the Year-4 surplus, the raise needs ≈ $98.8K > $60K and would be
+     * held; counting it, the need drops to ≈ $40.7K and the raise is granted.
+     */
+    @Test
+    void tpaTotal_raiseTest_countsFutureSurplusAsFunding() {
+        SimulationRequest req = excessRequest(SimulatorService.MODE_TPA_TOTAL, 110_000, 50_000,
+            tpaTotalFlow("lump", "income", 120_000, 4, 4, "none"));
+        req.setStartYear(1940);
+        req.setYearCount(4);
+        List<YearResult> rs = service.simulate(req);
+
+        double cpi1940 = rs.get(0).getInflation();
+        assertTrue(cpi1940 > 0, "Test needs positive 1940 CPI so a raise is proposed in Year 2");
+        assertEquals(60_000.0, rs.get(1).getPortfolioBeginning(), 0.01);
+        assertEquals(50_000.0 * (1 + cpi1940), rs.get(1).getTotalIncome(), 0.01,
+            "The Year-4 surplus must count toward affording the Year-2 raise");
+    }
 }

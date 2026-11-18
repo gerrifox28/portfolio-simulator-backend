@@ -303,8 +303,12 @@ public class SimulatorService {
                     ? tpaNetOfIncome(desiredWithdrawal, incomeToSubtract, tpaPaused)
                     : desiredWithdrawal - incomeToSubtract;
                 double finalWithdrawal = Math.min(Math.max(0.0, netWithdrawal), r.getPortfolioBeginning());
+                double annuityPaid = hasAnnuity ? r.getAnnuityPayment() : 0.0;
+                double reinvested = excessIncomeReinvested(req.getWithdrawalMode(), netWithdrawal,
+                    tpaTotalTarget, incomeFlow, annuityPaid);
                 r.setAnnualWithdrawal(finalWithdrawal);
-                r.setTotalIncome(finalWithdrawal + incomeFlow + (hasAnnuity ? r.getAnnuityPayment() : 0.0));
+                r.setIncomeReinvested(reinvested);
+                r.setTotalIncome(finalWithdrawal + incomeFlow + annuityPaid - reinvested);
             }
 
             double rate = computeBlendedReturn(year, req);
@@ -312,7 +316,7 @@ public class SimulatorService {
 
             // Cash flows inserted between withdrawal and return calculation.
             // Depletion guard: skip flows if pre-flow balance is already <= 0.
-            double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal();
+            double preFlowBalance = r.getPortfolioBeginning() - r.getAnnualWithdrawal() + r.getIncomeReinvested();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;
@@ -569,6 +573,27 @@ public class SimulatorService {
     public static final String MODE_TPA_TOTAL = "tpa_total";
 
     /**
+     * Income received beyond this year's income target is saved, not spent: it's added to the
+     * portfolio at the start of the year (alongside the withdrawal, before the return), and
+     * Total Income is reduced by the same amount so it never spikes above the target.
+     *
+     * <ul>
+     *   <li>TPA (Total Income): excess = Income + annuity − the Total Income target.</li>
+     *   <li>Fixed / With Inflation Adjustment: excess = Income − the year's desired withdrawal
+     *       (i.e. a negative withdrawal). These modes already net the annuity into the desired
+     *       withdrawal, so an annuity on its own exceeding the target isn't treated as excess.</li>
+     *   <li>Classic TPA: never — it has no Total Income target, and its pause/resume handling of
+     *       Income above the withdrawal ({@link #tpaNetOfIncome}) is deliberate.</li>
+     * </ul>
+     */
+    private static double excessIncomeReinvested(String mode, double netWithdrawal, double tpaTotalTarget,
+                                                 double incomeFlow, double annuityPaid) {
+        if ("tpa".equals(mode)) return 0.0;
+        if (MODE_TPA_TOTAL.equals(mode)) return Math.max(0.0, incomeFlow + annuityPaid - tpaTotalTarget);
+        return Math.max(0.0, -netWithdrawal);
+    }
+
+    /**
      * TPA (Total Income): next year's Total Income target. Works like "With Inflation
      * Adjustment" — the target is the household's desired TOTAL income, and the portfolio
      * fills whatever Income / annuity don't cover — except a positive-CPI raise is granted
@@ -588,8 +613,12 @@ public class SimulatorService {
      * Present-value sustainability test over the years remaining (this year through yearCount),
      * at the assumed nominal return r and inflation i (default 7% / 3%, user-adjustable):
      *
-     *   Σ_k max(0, candidate·(1+i)^k − projected Income_k − projected Annuity_k) / (1+r)^k
+     *   Σ_k (candidate·(1+i)^k − projected Income_k − projected Annuity_k) / (1+r)^k
      *       ≤  beginning balance + Σ_k projected non-Income Cash Flow_k / (1+r)^k
+     *
+     * A year where Income + annuity exceed the target contributes a negative term — a surplus
+     * that counts as funding — because that excess is actually reinvested in the portfolio
+     * (see {@link #excessIncomeReinvested}).
      *
      * Each projected stream follows its own rules: full-adjusted flows grow at i, half-adjusted
      * at i/2, unadjusted 0%; each starts and stops in its scheduled years; the annuity grows at
@@ -631,7 +660,7 @@ public class SimulatorService {
         double discount = 1.0, targetGrowth = 1.0, annuity = annuityNow;
         double pvNeed = 0.0, pvCash = 0.0;
         for (int k = 0; k < n; k++) {
-            pvNeed += Math.max(0.0, candidate * targetGrowth - income[k] - annuity) * discount;
+            pvNeed += (candidate * targetGrowth - income[k] - annuity) * discount;
             pvCash += cash[k] * discount;
             discount     /= (1.0 + assumedReturn);
             targetGrowth *= (1.0 + assumedInflation);
@@ -1143,14 +1172,17 @@ public class SimulatorService {
                     ? tpaNetOfIncome(desiredWithdrawal, incomeToSubtract, tpaPaused)
                     : desiredWithdrawal - incomeToSubtract;
                 double finalWithdrawal = Math.min(Math.max(0.0, netWithdrawal), beginning);
+                double reinvested = excessIncomeReinvested(req.getWithdrawalMode(), netWithdrawal,
+                    tpaTotalTarget, incomeFlow, annuityIncome);
                 r.setAnnualWithdrawal(finalWithdrawal);
-                r.setTotalIncome(finalWithdrawal + incomeFlow + annuityIncome);
+                r.setIncomeReinvested(reinvested);
+                r.setTotalIncome(finalWithdrawal + incomeFlow + annuityIncome - reinvested);
             }
 
             double rate = computeBlendedReturn(year, req);
             r.setPortfolioReturnRate(rate);
 
-            double preFlowBalance = beginning - r.getAnnualWithdrawal();
+            double preFlowBalance = beginning - r.getAnnualWithdrawal() + r.getIncomeReinvested();
             double cashFlow = netCashFlow(seq, preFlowBalance, req.getCashFlows(), flowMults);
             r.setCashFlowApplied(cashFlow);
             double balanceBeforeReturn = preFlowBalance + cashFlow;

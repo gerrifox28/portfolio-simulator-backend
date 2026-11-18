@@ -1820,4 +1820,66 @@ class SimulatorServiceTest {
         assertEquals(50_000.0 * (1 + cpi1940), rs.get(1).getTotalIncome(), 0.01,
             "The Year-4 surplus must count toward affording the Year-2 raise");
     }
+
+    // Annuity alone above the target, Fixed / With Inflation Adjustment: the excess is reinvested.
+    // Zero returns, $1M, $50K target, $70K annuity (cap 3%), start 1929.
+
+    private SimulationRequest annuityExcessRequest(String mode) {
+        SimulationRequest req = excessRequest(mode, 1_000_000, 50_000);
+        req.setAnnuityInitialIncome(70_000);
+        req.setAnnuityCap(0.03);
+        return req;
+    }
+
+    @Test
+    void annuityExcess_fixedMode_isReinvestedFlat() {
+        List<YearResult> rs = service.simulate(annuityExcessRequest("fixed"));
+        YearResult y1 = rs.get(0), y2 = rs.get(1);
+        assertEquals(20_000.0, y1.getIncomeReinvested(), 0.01, "Annuity $70K − target $50K is reinvested");
+        assertEquals(50_000.0, y1.getTotalIncome(), 0.01, "Total Income must equal the target, not the annuity");
+        assertEquals(1_020_000.0, y1.getPortfolioEnd(), 0.01);
+        // Fixed mode: the netted amount stays flat; the annuity's own COLA still flows to income.
+        assertEquals(20_000.0, y2.getIncomeReinvested(), 0.01);
+        assertEquals(y2.getAnnuityPayment() - 20_000.0, y2.getTotalIncome(), 0.01);
+        assertEquals(1_040_000.0, y2.getPortfolioEnd(), 0.01);
+    }
+
+    @Test
+    void annuityExcess_inflationAdjustedMode_excessGrowsWithCpi() {
+        List<YearResult> rs = service.simulate(annuityExcessRequest("inflation_adjusted"));
+        YearResult y1 = rs.get(0), y2 = rs.get(1);
+        assertEquals(20_000.0, y1.getIncomeReinvested(), 0.01);
+        assertEquals(50_000.0, y1.getTotalIncome(), 0.01);
+        double cpi = y1.getInflation();
+        assertEquals(20_000.0 * (1 + cpi), y2.getIncomeReinvested(), 0.01,
+            "With Inflation Adjustment: the netted amount grows with CPI, like the withdrawal would");
+        assertEquals(y2.getAnnuityPayment() - 20_000.0 * (1 + cpi), y2.getTotalIncome(), 0.01);
+    }
+
+    @Test
+    void annuityExcess_plusIncome_bothReinvested() {
+        SimulationRequest req = annuityExcessRequest("fixed");
+        req.setCashFlows(List.of(tpaTotalFlow("pension", "income", 10_000, 1, 1, "none")));
+        YearResult y1 = service.simulate(req).get(0);
+        assertEquals(30_000.0, y1.getIncomeReinvested(), 0.01, "$20K annuity excess + $10K Income");
+        assertEquals(50_000.0, y1.getTotalIncome(), 0.01);
+    }
+
+    @Test
+    void annuityBelowTarget_isUnchanged_nothingReinvested() {
+        SimulationRequest req = excessRequest("inflation_adjusted", 1_000_000, 50_000);
+        req.setAnnuityInitialIncome(30_000);
+        YearResult y1 = service.simulate(req).get(0);
+        assertEquals(0.0, y1.getIncomeReinvested(), 0.01);
+        assertEquals(20_000.0, y1.getAnnualWithdrawal(), 0.01);
+        assertEquals(50_000.0, y1.getTotalIncome(), 0.01);
+    }
+
+    @Test
+    void annuityExcess_classicTpa_keepsZeroFloor_notReinvested() {
+        YearResult y1 = service.simulate(annuityExcessRequest("tpa")).get(0);
+        assertEquals(0.0, y1.getIncomeReinvested(), 0.01);
+        assertEquals(70_000.0, y1.getTotalIncome(), 0.01);
+        assertEquals(1_000_000.0, y1.getPortfolioEnd(), 0.01);
+    }
 }

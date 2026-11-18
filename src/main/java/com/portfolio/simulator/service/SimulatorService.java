@@ -133,7 +133,7 @@ public class SimulatorService {
                     r.setInflationAdjPct(0.0);
                     // Not clamped to the nest egg here — only the final, post-Income
                     // Withdrawal (below) is ever capped by what the portfolio can afford.
-                    desiredWithdrawal = Math.max(0, targetIncome - annuityIncome);
+                    desiredWithdrawal = annuitySeed(req, targetIncome - annuityIncome);
                 } else {
                     desiredWithdrawal = req.getInitialWithdrawal();
                 }
@@ -182,7 +182,7 @@ public class SimulatorService {
                         } else {
                             pw = prevWithdrawal * (1.0 + cpi);
                         }
-                        pw = Math.max(0, pw);
+                        // May be negative when the annuity exceeds the target — see annuitySeed().
                     }
                     // Not clamped to the portfolio balance here — see seq==1 comment above.
 
@@ -270,7 +270,7 @@ public class SimulatorService {
                     if (hasAnnuity) {
                         r.setAnnuityPayment(annuityIncome);
                         r.setInflationAdjPct(0.0);
-                        desiredWithdrawal = Math.max(0.0, runningWithdrawal - annuityIncome);
+                        desiredWithdrawal = annuitySeed(req, runningWithdrawal - annuityIncome);
                     } else {
                         desiredWithdrawal = runningWithdrawal;
                     }
@@ -591,6 +591,19 @@ public class SimulatorService {
         if ("tpa".equals(mode)) return 0.0;
         if (MODE_TPA_TOTAL.equals(mode)) return Math.max(0.0, incomeFlow + annuityPaid - tpaTotalTarget);
         return Math.max(0.0, -netWithdrawal);
+    }
+
+    /**
+     * The desired withdrawal at the point the annuity is netted in (Year 1, or the Income Start
+     * Year): target − annuity. In Fixed / With Inflation Adjustment this is allowed to go
+     * negative when the annuity alone exceeds the target; the negative amount then carries
+     * forward under the mode's normal rules (flat, or grown with CPI), and
+     * {@link #excessIncomeReinvested} turns it into money added to the portfolio. Classic TPA
+     * keeps the $0 floor — its pause/resume logic assumes a non-negative withdrawal. (TPA Total
+     * Income overrides this value with its own target, so the floor is irrelevant there.)
+     */
+    private static double annuitySeed(SimulationRequest req, double targetMinusAnnuity) {
+        return "tpa".equals(req.getWithdrawalMode()) ? Math.max(0.0, targetMinusAnnuity) : targetMinusAnnuity;
     }
 
     /**
@@ -1083,7 +1096,7 @@ public class SimulatorService {
                 beginning = req.getStartingNestEgg();
                 // Not clamped to the nest egg here — only the final, post-Income
                 // Withdrawal (below) is ever capped by what the portfolio can afford.
-                desiredWithdrawal = Math.max(0, targetIncome - annuityIncome);
+                desiredWithdrawal = annuitySeed(req, targetIncome - annuityIncome);
             } else {
                 YearResult prev = results.get(seq - 2);
                 beginning = prev.getPortfolioEnd();
@@ -1122,7 +1135,7 @@ public class SimulatorService {
                     } else {
                         desiredWithdrawal = prevWithdrawal * (1.0 + cpi);
                     }
-                    desiredWithdrawal = Math.max(0, desiredWithdrawal);
+                    // May be negative when the annuity exceeds the target — see annuitySeed().
                 }
                 // Not clamped to the portfolio balance here — see seq==1 comment above.
             }
@@ -1145,7 +1158,7 @@ public class SimulatorService {
             } else {
                 if (seq == incomeStartW && seq > 1) {
                     // Not clamped to the portfolio balance here — see seq==1 comment above.
-                    desiredWithdrawal = Math.max(0.0, runningTargetIncome - annuityIncome);
+                    desiredWithdrawal = annuitySeed(req, runningTargetIncome - annuityIncome);
                 }
                 if (MODE_TPA_TOTAL.equals(req.getWithdrawalMode())) {
                     // TPA (Total Income) — see the matching block in simulate().

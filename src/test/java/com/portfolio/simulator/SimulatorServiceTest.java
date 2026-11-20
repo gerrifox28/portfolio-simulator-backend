@@ -1882,4 +1882,37 @@ class SimulatorServiceTest {
         assertEquals(70_000.0, y1.getTotalIncome(), 0.01);
         assertEquals(1_000_000.0, y1.getPortfolioEnd(), 0.01);
     }
+
+    /**
+     * Income-typed manual entries are never cut by deflation: a negative-CPI year leaves the
+     * amount flat (positive CPI still compounds from there). Cash-flow-typed entries keep
+     * following CPI in both directions. 1930–1932 were all deflation years.
+     */
+    @Test
+    void incomeEntries_notReducedByNegativeInflation_cashFlowsStillAre() {
+        SimulationRequest req = excessRequest("inflation_adjusted", 5_000_000, 100_000,
+            tpaTotalFlow("ssFull", "income", 20_000, 1, 15, "full"),
+            tpaTotalFlow("ssHalf", "income", 10_000, 1, 15, "half"),
+            tpaTotalFlow("expense", "cashflow", -10_000, 1, 15, "full"));
+        req.setStartYear(1930);
+        req.setYearCount(15);
+        List<YearResult> rs = service.simulate(req);
+
+        assertTrue(rs.get(0).getInflation() < 0, "1930 must be a deflation year for this test");
+        assertEquals(30_000.0, rs.get(1).getIncomeApplied(), 0.01,
+            "Income must stay flat after a deflation year, not shrink");
+        assertTrue(rs.get(1).getCashFlowApplied() > -10_000.0,
+            "Cash-flow entries still deflate with negative CPI");
+
+        boolean sawPositive = false;
+        double full = 20_000, half = 10_000;
+        for (int i = 1; i < 15; i++) { // entries run years 1–15
+            double cpi = rs.get(i - 1).getInflation();
+            if (cpi > 0) sawPositive = true;
+            full *= 1 + Math.max(0, cpi);
+            half *= 1 + Math.max(0, cpi) / 2;
+            assertEquals(full + half, rs.get(i).getIncomeApplied(), 0.01, "Year " + (i + 1));
+        }
+        assertTrue(sawPositive, "Window must include positive-CPI years too");
+    }
 }

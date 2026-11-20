@@ -687,6 +687,9 @@ public class SimulatorService {
     /**
      * Advances per-entry multipliers for all entries that are active this year.
      * Called after computing the cash flow for {@code seq}, before moving to seq+1.
+     * "Income"-typed entries are never reduced by negative CPI — in a deflation year their
+     * amount simply stays flat (like Social Security, which never cuts benefits). Cash-flow-typed
+     * entries still follow CPI in both directions.
      */
     private void advanceFlowMultipliers(int seq, List<CashFlow> flows,
                                          Map<String, double[]> mults, double cpi) {
@@ -694,10 +697,11 @@ public class SimulatorService {
         for (CashFlow cf : flows) {
             if (!flowApplies(cf, seq)) continue;
             double[] m = mults.computeIfAbsent(cf.getId(), k -> new double[]{1.0, 1.0, 1.0, 1.0});
+            double adjCpi = ("income".equals(cf.getType()) && cpi < 0) ? 0.0 : cpi;
             m[2] = m[0];
             m[3] = m[1];
-            m[0] *= (1.0 + cpi);
-            m[1] *= (1.0 + cpi / 2.0);
+            m[0] *= (1.0 + adjCpi);
+            m[1] *= (1.0 + adjCpi / 2.0);
         }
     }
 
